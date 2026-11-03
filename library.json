@@ -1,6 +1,6 @@
 {
   "name": "ESP32-Harmonic-RX",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Experimental original-ESP32 two-tone RF snapshot receiver with a VEVOR YT60234 example and Python dashboard. Direct 915 MHz reception is unverified.",
   "keywords": ["esp32", "sdr", "fsk", "vevor", "weather", "experimental"],
   "repository": {"type": "git", "url": "https://github.com/aobeidat85/ESP32-Harmonic-RX.git"},

@@ -19,5 +19,15 @@
     "humidity_percent": 82,
     "payload_hex": "aa0014ab1402ba52011808015c0fc9010101b296b3"
   },
-  "control": "Between-burst recording contains no accepted VEVOR payload. Clock and USB capture artifacts remain present."
+  "control": "Between-burst recording contains no accepted VEVOR payload. Clock and USB capture artifacts remain present.",
+  "local_clock_regression": {
+    "file": "vevor-local-clock.npz",
+    "kind": "Fresh physical ESP32 capture during reception troubleshooting",
+    "date": "2026-11-02",
+    "sensor_id": "14AB",
+    "temperature_C": 18.7,
+    "humidity_percent": 85,
+    "payload_hex": "aa0014ab1402af5501080501600fc90101016a376b",
+    "result": "Whole-window clock yields an invalid counter/checksum; fixed sync-centered local clock yields a valid payload without bit correction."
+  }
 }

@@ -10,6 +10,55 @@ PATTERN = 2 * PREAMBLE.astype(float) - 1
 
 
 def decode_clocked(t, p0, p1):
+    """Recover the window clock, then refine it locally around detected syncs.
+
+    Each refinement uses one fixed 40 ms interval selected by the sync time,
+    before consulting payload checks. It never searches timing for a checksum.
+    """
+    result, ratio = _decode_window(t, p0, p1)
+    t, p0, p1 = (np.asarray(x, dtype=float) for x in (t, p0, p1))
+    accepted = list(result["valid_packets"])
+    refinements = []
+    for candidate in result.get("unvalidated_candidates", []):
+        sync = candidate["preamble_time_us"]
+        selected = (t >= sync - 16000) & (t <= sync + 24000)
+        if selected.sum() < 128:
+            continue
+        local, _ = _decode_window(t[selected], p0[selected], p1[selected])
+        coherence = local.get("clock_coherence", 0)
+        # Select timing by physical transition coherence, not packet validity.
+        if coherence < max(0.3, result.get("clock_coherence", 0)):
+            continue
+        refinements.append(
+            {
+                "sync_time_us": sync,
+                "clock_period_us": local["clock_period_us"],
+                "clock_coherence": coherence,
+            }
+        )
+        for packet in local["valid_packets"]:
+            if abs(packet["preamble_time_us"] - sync) > 500:
+                continue
+            if any(
+                p["payload_hex"] == packet["payload_hex"]
+                and abs(p["preamble_time_us"] - packet["preamble_time_us"]) < 500
+                for p in accepted
+            ):
+                continue
+            accepted.append(
+                dict(
+                    packet,
+                    clock_period_us=local["clock_period_us"],
+                    clock_coherence=coherence,
+                    clock_source="local",
+                )
+            )
+    result["valid_packets"] = accepted
+    result["clock_refinements"] = refinements
+    return result, ratio
+
+
+def _decode_window(t, p0, p1):
     t = np.asarray(t, dtype=float)
     p0 = np.asarray(p0, dtype=float)
     p1 = np.asarray(p1, dtype=float)

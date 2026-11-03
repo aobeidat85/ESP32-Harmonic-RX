@@ -85,6 +85,16 @@ class Receiver:
         }
         if seed:
             self._load_saved()
+        # Reuse a recently measured burst phase; stale timing falls back to scanning.
+        try:
+            timing = json.loads(
+                (self.data_dir / "burst-timing.json").read_text(encoding="utf-8")
+            )
+            age = time.time() - float(timing["burst_unix"])
+            if 0 <= age < 300 and timing.get("port") == serial_port:
+                self.anchor = time.perf_counter() - age
+        except (OSError, ValueError, TypeError, KeyError):
+            pass
 
     def _event(self, message, kind="info"):
         with self.lock:
@@ -220,7 +230,9 @@ class Receiver:
             fields.update(
                 source="live",
                 received_at=received_at,
-                clock_period_us=result.get("clock_period_us"),
+                clock_period_us=packet.get(
+                    "clock_period_us", result.get("clock_period_us")
+                ),
             )
             accepted.append(fields)
             with (self.data_dir / "readings.jsonl").open(
@@ -253,6 +265,14 @@ class Receiver:
                 capture["estimated_window_host_start"]
                 + sync[0]["preamble_time_us"] / 1e6
             )
+            timing = {
+                "port": self.state["config"]["port"],
+                "burst_unix": time.time() + self.anchor - time.perf_counter(),
+            }
+            timing_path = self.data_dir / "burst-timing.json"
+            pending = timing_path.with_suffix(".tmp")
+            pending.write_text(json.dumps(timing), encoding="utf-8")
+            pending.replace(timing_path)
         return bool(accepted), bool(sync)
 
     def _run(self):

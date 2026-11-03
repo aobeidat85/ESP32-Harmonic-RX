@@ -41,6 +41,21 @@ class DashboardTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_recent_burst_timing_survives_restart_but_stale_timing_does_not(self):
+        receiver = Receiver(self.temp.name, seed=False, serial_port="TESTPORT")
+        receiver.process_capture(real_capture())
+        restarted = Receiver(self.temp.name, seed=False, serial_port="TESTPORT")
+        self.assertIsNotNone(restarted.anchor)
+        self.assertAlmostEqual(restarted.anchor, receiver.anchor, delta=0.05)
+        wrong_port = Receiver(self.temp.name, seed=False, serial_port="OTHERPORT")
+        self.assertIsNone(wrong_port.anchor)
+        path = Path(self.temp.name) / "burst-timing.json"
+        timing = json.loads(path.read_text())
+        timing["burst_unix"] = time.time() - 301
+        path.write_text(json.dumps(timing))
+        stale = Receiver(self.temp.name, seed=False, serial_port="TESTPORT")
+        self.assertIsNone(stale.anchor)
+
     def test_real_packet_is_saved_and_duplicates_are_suppressed(self):
         receiver = Receiver(self.temp.name, seed=False)
         accepted, synced = receiver.process_capture(real_capture())

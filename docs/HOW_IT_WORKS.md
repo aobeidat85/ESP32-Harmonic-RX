@@ -27,6 +27,8 @@ Each observation integrates approximately 8 µs of nominal 16 MS/s data. Process
 
 Python estimates a quiet tone-power baseline, forms a log ratio between the tone energies, and identifies strong frequency transitions. It estimates symbol period and phase from those transitions **before consulting the payload checksum**. Observations are grouped into symbol cells.
 
+After detecting a sync, the decoder also estimates a local clock in one fixed 40 ms interval: 16 ms before the sync and 24 ms after it. The local timing is eligible only when transition coherence is at least 0.3 and improves on the whole-window estimate. This selection uses physical transitions, without consulting checksum results or modifying payload bits. It avoids letting noise and small timing drift across the full 150 ms window corrupt a short packet.
+
 The VEVOR decoder permits at most two errors in the 40-bit sync pattern. It then requires the exact `AA00` payload header, 21 payload bytes, a matching additive checksum over the first 19 bytes, and `payload[20] == (payload[18] + 1) mod 256`. At least 264 decoded bits must remain from the sync position. It performs no payload bit repair.
 
 Searching timing parameters until a checksum passes can produce misleading alternatives. An earlier exploratory decoder showed this problem, so the published decoder recovers timing independently. Even then, an additive checksum is weak: consistent sensor IDs, repeated fields, console comparison, and negative controls remain useful checks.

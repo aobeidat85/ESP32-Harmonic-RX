@@ -38,3 +38,11 @@ During packaging, the refactored library was flashed to the same board. A 10 ms 
 - Measurements have gaps. The sampler does not provide continuous I/Q or decoded audio.
 - Wind, rain, light, UV, and battery fields have not been independently checked against the console.
 - Wall-USB and shared-USB experiments do not fully eliminate all conducted or nonlinear coupling paths. A calibrated RF source/receiver and stronger electrical isolation would improve verification.
+
+## Local-clock regression fix
+
+A later troubleshooting run found brief spectral tone pairs at the original offsets, repeating about 20 seconds apart. Spectrum-assisted timing captured fresh VEVOR syncs, but whole-window timing still left payload bit errors. A fixed sync-centered local clock recovered the new `vevor-local-clock.npz` fixture: station `14AB`, 18.7°C, 85% RH, with header, checksum, and counter all valid. No payload bits were repaired. The software suite now includes this measured regression alongside the original packet and negative control.
+
+With the corrected decoder running in the live dashboard, two further fresh packets were accepted at 22:38:09 and 22:38:49 America/New_York: 18.5°C and 18.6°C, both 85% RH. These were newly captured measurements, not replayed fixtures. The troubleshooting run used spectrum-assisted burst timing to seed initial acquisition; it does not establish automatic cold-start acquisition reliability. Reception still misses bursts.
+
+A third live reading followed at 22:40:29 America/New_York: 18.5°C, 86% RH. The two earlier live captures also decode under whole-window timing when correctly aligned; therefore the live recovery reflects spectrum-assisted acquisition as well as the decoder improvement. The separate local-clock fixture specifically demonstrates the decoder fix. Fourteen host/dashboard tests pass, including measured regression and restart-timing expiry checks.

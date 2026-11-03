@@ -45,6 +45,7 @@ This is one tested station/board combination. The EU868 MHz variant and other VE
 | Receiver profile | Requested 2744 MHz; tone offsets 808500 Hz and 1018000 Hz; gain index 65 |
 | Station ID in the recorded fixture | `14AB` |
 | Final faster-sampler prototype test | Four accepted weather payloads across five predicted bursts |
+| Fresh local-clock troubleshooting run | New validated packets received by the refactored library and dashboard; see validation record |
 | Between-burst controls | No accepted weather payloads |
 | Recovered fixture temperature | 19.8°C / 67.6°F |
 | Console comparison | User reported 67.8°F; the readings differ by 0.2°F |
@@ -52,7 +53,7 @@ This is one tested station/board combination. The EU868 MHz variant and other VE
 | Tested interpretation | Correctly structured weather payloads with checksum and counter checks |
 | Unverified | Absolute RF frequency, actual PLL lock, harmonic origin, direct 915 MHz reception, useful range |
 
-Later live prototype readings changed as new packets arrived. The packaged dashboard screenshot shows its source labels, including recorded readings loaded at startup. [The earlier live prototype screenshot](docs/images/dashboard-prototype-live.jpg) shows new packets arriving. These are real UI captures, not synthetic mockups. Wind, rain, UV, light, and battery fields are decoded but were not independently compared with the console.
+Later live prototype readings changed as new packets arrived. The current dashboard screenshot includes fresh readings received after the local-clock fix, alongside earlier saved history. [The earlier live prototype screenshot](docs/images/dashboard-prototype-live.jpg) shows new packets arriving. These are real UI captures, not synthetic mockups. Wind, rain, UV, light, and battery fields are decoded but were not independently compared with the console.
 
 The simple additive checksum can miss compensating bit errors. Stable IDs, repeated fields, console comparison, and negative controls provide additional evidence; they do not make reception error-free. Up to two errors are permitted in the 40-bit sync pattern. Payload bits are not repaired or guessed.
 
@@ -84,7 +85,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe dashboard/app.py --serial-port COM10
 ```
 
-Open **http://127.0.0.1:8765** and select **Start receiving**. Begin close to the outdoor sensor, as in the experiment. Initial acquisition can take several bursts. Keep any experimental GPIO transmitter unplugged while receiving weather data.
+Open **http://127.0.0.1:8765** and select **Start receiving**. Begin close to the outdoor sensor, as in the experiment. Initial acquisition can take several bursts. The dashboard retains measured burst timing for up to five minutes across restarts, then falls back to scanning. Keep any experimental GPIO transmitter unplugged while receiving weather data.
 
 The UI starts with recorded example readings labeled **Saved**. Newly received packets are labeled **Live**. The Start/Stop controls acquire and release the serial port. A complete USB frame with a bad CRC is discarded and reception continues; a short read or malformed protocol frame requires reconnecting.
 

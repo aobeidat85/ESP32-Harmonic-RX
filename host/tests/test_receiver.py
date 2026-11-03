@@ -14,6 +14,25 @@ FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
 
 
 class ReceiverTests(unittest.TestCase):
+    def test_local_clock_recovers_fresh_capture_without_bit_repair(self):
+        from esp32_harmonic_rx.vevor import _decode_window
+
+        with np.load(FIXTURES / "vevor-local-clock.npz", allow_pickle=False) as saved:
+            rows = saved["rows"]
+        args = (rows["us"], rows["p0"], rows["p1"])
+        before, _ = _decode_window(*args)
+        self.assertEqual(before["valid_packets"], [])
+        after, _ = decode_clocked(*args)
+        packet = after["valid_packets"][0]
+        self.assertEqual(packet["clock_source"], "local")
+        self.assertEqual(
+            packet["payload_hex"], "aa0014ab1402af5501080501600fc90101016a376b"
+        )
+        reading = parse_payload(packet["payload_hex"])
+        self.assertEqual(
+            (reading["temperature_C"], reading["humidity_percent"]), (18.7, 85)
+        )
+
     def test_recorded_weather_packet(self):
         with np.load(
             FIXTURES / "vevor-yt60234-packet.npz", allow_pickle=False
