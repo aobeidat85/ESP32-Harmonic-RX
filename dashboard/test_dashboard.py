@@ -21,7 +21,7 @@ from app import (
     ROW_DTYPE,
     weather_fields,
 )
-from esp32_harmonic_rx import CaptureIntegrityError
+from esp32_harmonic_rx import CaptureIntegrityError, ReceiverProtocolError
 
 
 def real_capture():
@@ -40,6 +40,119 @@ class DashboardTests(unittest.TestCase):
 
     def tearDown(self):
         self.temp.cleanup()
+
+    def test_lost_usb_boundary_resets_client_then_receives_recorded_packet(self):
+        clients = []
+
+        class Client:
+            info = "VEVOR_FSK framing_recovery_test"
+
+            def __init__(self, **kwargs):
+                self.closed = False
+                self.broken = not clients
+                clients.append(self)
+
+            def command(self, cmd):
+                return "OK"
+
+            def capture(self, ms):
+                if self.broken:
+                    raise ReceiverProtocolError("Invalid capture header")
+                return real_capture()
+
+            def close(self):
+                self.closed = True
+
+        receiver = Receiver(
+            self.temp.name, seed=False, client_factory=Client, serial_port="TEST"
+        )
+        receiver.start()
+        deadline = time.monotonic() + 3
+        while (
+            not receiver.snapshot()["stats"]["accepted"] and time.monotonic() < deadline
+        ):
+            time.sleep(0.02)
+        receiver.stop()
+        receiver.worker.join(timeout=3)
+        self.assertEqual(len(clients), 2)
+        self.assertTrue(all(c.closed for c in clients))
+        self.assertEqual(receiver.snapshot()["stats"]["accepted"], 1)
+        self.assertIsNone(receiver.snapshot()["error"])
+
+    def test_monitor_quiet_windows_are_not_weather_readings(self):
+        class Client:
+            info = "VEVOR_FSK monitor=1"
+
+            def __init__(self, **kwargs):
+                self.calls = 0
+
+            def command(self, cmd):
+                return "OK"
+
+            def capture(self, ms, monitor=False):
+                if not monitor:
+                    raise AssertionError("Dashboard must negotiate monitor mode")
+                self.calls += 1
+                if self.calls <= 3:
+                    return dict(idle=True, count=4271, failures=0)
+                return real_capture()
+
+            def close(self):
+                pass
+
+        receiver = Receiver(
+            self.temp.name, seed=False, client_factory=Client, serial_port="TEST"
+        )
+        receiver.start()
+        deadline = time.monotonic() + 3
+        while (
+            not receiver.snapshot()["stats"]["accepted"] and time.monotonic() < deadline
+        ):
+            time.sleep(0.02)
+        receiver.stop()
+        receiver.worker.join(timeout=3)
+        snapshot = receiver.snapshot()
+        self.assertEqual(snapshot["stats"]["windows"], 4)
+        self.assertEqual(snapshot["stats"]["missed"], 3)
+        self.assertEqual(snapshot["stats"]["accepted"], 1)
+
+    def test_monitor_periodically_bypasses_gate_for_weak_signal(self):
+        modes = []
+
+        class Client:
+            info = "VEVOR_FSK monitor=1"
+
+            def __init__(self, **kwargs):
+                pass
+
+            def command(self, cmd):
+                return "OK"
+
+            def capture(self, ms, monitor=False):
+                modes.append(monitor)
+                return (
+                    dict(idle=True, count=4271, failures=0)
+                    if monitor
+                    else real_capture()
+                )
+
+            def close(self):
+                pass
+
+        receiver = Receiver(
+            self.temp.name, seed=False, client_factory=Client, serial_port="TEST"
+        )
+        receiver.start()
+        deadline = time.monotonic() + 3
+        while (
+            not receiver.snapshot()["stats"]["accepted"] and time.monotonic() < deadline
+        ):
+            time.sleep(0.02)
+        receiver.stop()
+        receiver.worker.join(timeout=3)
+        self.assertEqual(modes[:31], [True] * 31)
+        self.assertFalse(modes[31])
+        self.assertEqual(receiver.snapshot()["stats"]["accepted"], 1)
 
     def test_recent_burst_timing_survives_restart_but_stale_timing_does_not(self):
         receiver = Receiver(self.temp.name, seed=False, serial_port="TESTPORT")

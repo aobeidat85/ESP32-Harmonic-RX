@@ -46,3 +46,9 @@ A later troubleshooting run found brief spectral tone pairs at the original offs
 With the corrected decoder running in the live dashboard, two further fresh packets were accepted at 22:38:09 and 22:38:49 America/New_York: 18.5°C and 18.6°C, both 85% RH. These were newly captured measurements, not replayed fixtures. The troubleshooting run used spectrum-assisted burst timing to seed initial acquisition; it does not establish automatic cold-start acquisition reliability. Reception still misses bursts.
 
 A third live reading followed at 22:40:29 America/New_York: 18.5°C, 86% RH. The two earlier live captures also decode under whole-window timing when correctly aligned; therefore the live recovery reflects spectrum-assisted acquisition as well as the decoder improvement. The separate local-clock fixture specifically demonstrates the decoder fix. Fourteen host/dashboard tests pass, including measured regression and restart-timing expiry checks.
+
+## 0.1.2 USB recovery and monitor experiment
+
+The dashboard later stopped on a malformed USB capture header; a separate gain test also encountered a serial timeout. These are transport failures, not evidence of weak RF. Tests now exercise closing the corrupted connection and reconnecting before receiving a real recorded packet.
+
+A 65.16-second on-board MON run completed 410 quiet windows with no payload transfers or CRC errors. The sum of capture-window durations was 61.50 seconds, or 94.39% of wall time. This is **window coverage**, not continuous I/Q coverage: the 128-sample snapshots still have processing gaps within each window. No weather payload was accepted during that run, so the coverage result does not establish improved RF range or packet success rate. Periodic unfiltered scans and all predicted bursts bypass the gate.

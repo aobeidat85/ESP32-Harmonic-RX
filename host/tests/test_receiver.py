@@ -8,12 +8,40 @@ from esp32_harmonic_rx import (
     CaptureIntegrityError,
     decode_clocked,
     parse_payload,
+    ReceiverProtocolError,
 )
 
 FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
 
 
 class ReceiverTests(unittest.TestCase):
+    def test_monitor_idle_reply_and_invalid_serial_boundary(self):
+        class Reply:
+            def __init__(self, line):
+                self.line = line
+
+            def write(self, data):
+                self.sent = data
+
+            def readline(self):
+                return self.line
+
+        client = ReceiverClient.__new__(ReceiverClient)
+        client.s = Reply(b"IDLE 4271 150010 0 65 2000 430 0.0542\n")
+        capture = client.capture(150, monitor=True)
+        self.assertEqual(client.s.sent, b"MON 150\n")
+        self.assertTrue(capture["idle"])
+        self.assertNotIn("rows", capture)
+        self.assertEqual(capture["count"], 4271)
+        for line in [
+            b"\xff\xff\x00 binary\n",
+            b"FSK broken 0 150000 0 65\n",
+            b"IDLE 4271 150010 0 65 2000 430 nan\n",
+        ]:
+            client.s = Reply(line)
+            with self.assertRaises(ReceiverProtocolError):
+                client.capture(150, monitor=True)
+
     def test_local_clock_recovers_fresh_capture_without_bit_repair(self):
         from esp32_harmonic_rx.vevor import _decode_window
 

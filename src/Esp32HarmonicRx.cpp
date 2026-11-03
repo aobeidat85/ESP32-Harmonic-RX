@@ -111,11 +111,17 @@ void Receiver::coefficients() {
 
 void Receiver::prepare() {
   REG_WRITE(DumpCtrl, 0); set_chanfreq(2412, 0);
+  // Pin the normal LO divider, as in the upstream original-ESP32 backend.
+  // A previous alternate-LO experiment must not leak into this profile.
+  const unsigned lo = ram_chip_i2c_readReg(0x65, 4, 0);
+  ram_chip_i2c_writeReg(0x65, 4, 0, lo & ~0x10u);
   const unsigned cap = ram_chip_i2c_readReg(0x62, 1, 0);
   ram_chip_i2c_writeReg(0x62, 1, 0, cap & ~0x80u);
   const unsigned xtal = rtc_clk_xtal_freq_get();
   rom_set_rf_freq_offset(xtal == 26 ? 1 : xtal == 24 ? 2 : 0, config_.tuningMHz, 0);
   rom_pbus_workmode(); rom_pbus_xpd_tx_off(); rom_pbus_xpd_rx_on(1); rom_set_rxclk_en(1);
+  const unsigned activeLo = ram_chip_i2c_readReg(0x65, 4, 0);
+  ram_chip_i2c_writeReg(0x65, 4, 0, activeLo & ~0x10u);
   const uint32_t gain = REG_READ(RxGain);
   REG_WRITE(RxGain, (gain & 0x7fffff) | (config_.gainIndex << 24) | BIT(23));
   delay(3);

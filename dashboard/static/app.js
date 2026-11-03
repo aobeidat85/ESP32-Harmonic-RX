@@ -157,7 +157,7 @@ function updateCountdown() {
     $('nextLabel').textContent = remaining > 0 ? `Next capture in ${remaining}s` : 'Next capture any moment';
   } else {
     $('nextLabel').textContent = ({idle:'Start reception for new readings', connecting:'Connecting to USB…',
-      searching:'Searching for a sensor burst…', capturing:'Capturing and validating…', stopping:'Releasing the USB port…',
+      reconnecting:'Resetting and reconnecting the USB receiver…', searching:'Searching for a sensor burst…', capturing:'Capturing and validating…', stopping:'Releasing the USB port…',
       error:'Check connection and try again'})[state.phase] || state.message;
   }
 }
@@ -190,9 +190,9 @@ function render(value) {
   $('readingBadge').className = `badge ${fresh ? 'live' : 'saved'}`;
   $('readingAge').textContent = !last ? 'Start receiving to get weather data' : `${last.source === 'saved' ? 'Saved capture' : 'Received'} · ${ageLabel(last.received_at)}`;
   const connected = value.connected && value.running;
-  const labels = {idle:'Receiver stopped', connecting:'Connecting', waiting:'Receiver connected', capturing:'Capturing', searching:'Searching', stopping:'Stopping', error:'Connection error'};
+  const labels = {idle:'Receiver stopped', connecting:'Connecting', reconnecting:'Reconnecting USB', waiting:'Receiver connected', capturing:'Capturing', searching:'Searching', stopping:'Stopping', error:'Connection error'};
   $('connectionLabel').textContent = labels[value.phase] || value.phase;
-  $('sideStatus').textContent = connected ? 'Connected' : value.phase === 'connecting' ? 'Connecting…' : 'Not connected';
+  $('sideStatus').textContent = connected ? 'Connected' : ['connecting','reconnecting'].includes(value.phase) ? 'Connecting…' : 'Not connected';
   $('receiverStateBadge').textContent = labels[value.phase] || value.phase;
   $('receiverStateBadge').className = `badge ${connected ? 'live' : value.error ? 'error' : ''}`;
   ['sideDot','connectionDot','activityDot'].forEach(id => $(id).classList.toggle('online', connected));

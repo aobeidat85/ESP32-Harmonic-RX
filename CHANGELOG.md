@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.2 — USB recovery and activity-gated acquisition
+
+- Reset/reconnect after unknown USB framing or serial I/O failure, with bounded retries.
+- Add negotiated MON acquisition: quiet windows return short metadata instead of full measurements.
+- Bypass the gate for predicted bursts and periodic unfiltered scans.
+- Pin the normal ESP32 LO divider, report reset reason, and add transport/monitor recovery tests.
+
 ## 0.1.1 — local clock recovery
 
 - Refine the symbol clock in a fixed interval around detected syncs, selecting by transition coherence without checksum-guided timing search.

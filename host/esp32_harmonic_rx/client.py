@@ -9,6 +9,10 @@ class CaptureIntegrityError(RuntimeError):
     """A complete serial frame was read, but its CRC failed. The frame is discarded."""
 
 
+class ReceiverProtocolError(RuntimeError):
+    """The serial boundary is uncertain; reset/reconnect before another command."""
+
+
 class ReceiverClient:
     def resynchronize(self):
         """Drain a bounded pending frame, then establish a fresh INFO boundary."""
@@ -58,37 +62,86 @@ class ReceiverClient:
             raise RuntimeError(cmd + " " + repr(line))
         return line
 
-    def capture(self, ms=120):
+    def capture(self, ms=120, monitor=False):
         start = time.perf_counter()
-        line = self.command("CAP " + str(ms))
+        try:
+            line = self.command(("MON " if monitor else "CAP ") + str(ms))
+        except RuntimeError as error:
+            raise ReceiverProtocolError(
+                "Capture command failed; reconnect required"
+            ) from error
         header_received = time.perf_counter()
         fields = line.split()
-        if len(fields) != 6 or fields[0] != "FSK":
-            raise RuntimeError("Unexpected capture header " + line)
-        count = int(fields[1])
+        if monitor and len(fields) == 8 and fields[0] == "IDLE":
+            try:
+                count, elapsed, failures, gain, lag, edges = map(int, fields[1:7])
+                coherence = float(fields[7])
+                if not (
+                    128 <= count <= 6144
+                    and 0 <= coherence <= 1
+                    and 0 <= failures <= 10000
+                    and 0 <= gain <= 81
+                    and 0 < elapsed <= 1000000
+                    and 0 <= lag <= 1000000
+                    and edges >= 0
+                ):
+                    raise ValueError("Invalid monitor metadata")
+            except ValueError as error:
+                raise ReceiverProtocolError("Invalid monitor reply") from error
+            return dict(
+                idle=True,
+                count=count,
+                elapsed_us=elapsed,
+                failures=failures,
+                gain=gain,
+                gate_edges=edges,
+                gate_coherence=coherence,
+                host_start=start,
+                host_end=time.perf_counter(),
+            )
+        if len(fields) not in (6, 7) or fields[0] != "FSK":
+            raise ReceiverProtocolError("Invalid capture header; USB framing lost")
+        try:
+            count = int(fields[1])
+            expected_crc = int(fields[2], 16)
+            elapsed, failures, gain = map(int, fields[3:6])
+            lag = int(fields[6]) if len(fields) == 7 else 0
+            if not (
+                0 < elapsed <= 1000000
+                and 0 <= failures <= 10000
+                and 0 <= gain <= 81
+                and 0 <= lag <= 1000000
+            ):
+                raise ValueError("Invalid capture metadata")
+        except ValueError as error:
+            raise ReceiverProtocolError("Invalid capture metadata") from error
         if not 0 < count <= 6144:
-            raise RuntimeError("Invalid observation count")
+            raise ReceiverProtocolError("Invalid observation count")
         size = count * 12
         raw = self.s.read(size)
         if len(raw) != size:
-            raise RuntimeError("Short capture")
-        if zlib.crc32(raw) & 0xFFFFFFFF != int(fields[2], 16):
-            self.resynchronize()
+            raise ReceiverProtocolError("Short capture; reconnect required")
+        if zlib.crc32(raw) & 0xFFFFFFFF != expected_crc:
+            try:
+                self.resynchronize()
+            except RuntimeError as error:
+                raise ReceiverProtocolError("USB framing recovery failed") from error
             raise CaptureIntegrityError(
                 "Capture CRC mismatch; complete frame discarded"
             )
         rows = np.frombuffer(
             raw, dtype=[("us", "<u4"), ("p0", "<f4"), ("p1", "<f4")]
         ).copy()
-        elapsed = int(fields[3])
-        window_start = header_received - elapsed / 1e6 - (len(line) + 1) * 10 / 1000000
+        window_start = (
+            header_received - (elapsed + lag) / 1e6 - (len(line) + 1) * 10 / 1000000
+        )
         return dict(
             raw=raw,
             rows=rows,
             count=count,
             elapsed_us=elapsed,
-            failures=int(fields[4]),
-            gain=int(fields[5]),
+            failures=failures,
+            gain=gain,
             host_start=start,
             host_end=time.perf_counter(),
             estimated_window_host_start=window_start,

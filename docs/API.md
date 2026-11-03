@@ -28,7 +28,8 @@ The VEVOR sketch uses 1,000,000 baud. Commands are newline-terminated ASCII:
 | `GAIN 65` | Set the manual gain index |
 | `FREQ 2744` | Attempt the LO setting |
 | `TONES 808500 1018000` | Update the tone offsets |
-| `CAP 150` | Capture then send the binary frame |
+| `CAP 150` | Capture then send the binary frame, bypassing the activity gate |
+| `MON 150` | Capture, then transfer measurements only if physical FSK activity passes the gate |
 
 A successful capture header is:
 
@@ -56,3 +57,17 @@ finally:
 `decode_clocked(t_us, p0, p1)` returns `(result, log_tone_ratio)`. `result['valid_packets']` contains only packets passing header, checksum, and counter checks. Timing estimates, sync errors, and unvalidated candidates are diagnostics; candidates are not accepted weather readings.
 
 `parse_payload(hex_or_bytes)` rechecks a 21-byte payload and returns temperature, humidity, wind, rain, UV, light, battery, sensor ID, and counters. Field interpretation follows the referenced `rtl_433` VEVOR decoder.
+
+## Activity-gated acquisition (bridge 0.1.2)
+
+`INFO` advertises `monitor=1` when `MON` is available. The gate is specific to the example's approximately 88.5 µs symbol interval. It requires at least 30 strong tone transitions and circular timing coherence of at least 0.20. It does not validate VEVOR data. `CAP` always bypasses it.
+
+A rejected window returns only text, with no binary payload:
+
+```text
+IDLE <count> <elapsed_us> <failed_snapshots> <gain> <post_capture_us> <edges> <coherence>
+```
+
+A transferred `MON` candidate uses the normal `FSK` header with one extra final `post_capture_us` field. The host subtracts this processing delay when estimating the window start. `client.capture(150, monitor=True)` returns `idle=True` and no `rows` for an IDLE reply; callers must not treat it as weather data. The dashboard negotiates this feature, uses ordinary CAP for predicted bursts and every 32nd acquisition scan, and remains compatible with older firmware.
+
+`ReceiverProtocolError` marks an unknown binary boundary, invalid metadata, or short read. Close/reset/reconnect before another capture. The dashboard automatically does this with bounded retries; direct API callers own recovery. Fully consumed CRC-bad frames still use `CaptureIntegrityError` when in-place INFO resynchronization succeeds.

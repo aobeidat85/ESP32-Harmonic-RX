@@ -87,7 +87,7 @@ python -m venv .venv
 
 Open **http://127.0.0.1:8765** and select **Start receiving**. Begin close to the outdoor sensor, as in the experiment. Initial acquisition can take several bursts. The dashboard retains measured burst timing for up to five minutes across restarts, then falls back to scanning. Keep any experimental GPIO transmitter unplugged while receiving weather data.
 
-The UI starts with recorded example readings labeled **Saved**. Newly received packets are labeled **Live**. The Start/Stop controls acquire and release the serial port. A complete USB frame with a bad CRC is discarded and reception continues; a short read or malformed protocol frame requires reconnecting.
+The UI starts with recorded example readings labeled **Saved**. Newly received packets are labeled **Live**. The Start/Stop controls acquire and release the serial port. With current firmware, acquisition uses a physical FSK activity gate to avoid transferring empty captures. Predicted bursts and every 32nd scan bypass the gate so weak candidates can still reach the decoder. Capture-window counts include quiet periods and are not counts of transmitted packets. A complete USB frame with a bad CRC is discarded and reception continues; a short read or malformed protocol frame causes the dashboard to close, reset, and reconnect the receiver, with bounded retries.
 
 For Linux/macOS, activate `.venv`, use `python -m pip install -e ./host platformio==6.2.0`, and substitute a port such as `/dev/ttyUSB0`:
 

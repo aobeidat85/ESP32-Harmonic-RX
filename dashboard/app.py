@@ -16,7 +16,7 @@ from urllib.parse import urlparse
 
 import numpy as np
 
-from receiver.client import FSKClient, CaptureIntegrityError
+from receiver.client import FSKClient, CaptureIntegrityError, ReceiverProtocolError
 from esp32_harmonic_rx import parse_payload
 from serial.tools import list_ports
 from receiver.decoder import decode_clocked
@@ -290,6 +290,8 @@ class Receiver:
                 self.state.update(connected=True, firmware=client.info)
             self._event(f"USB receiver connected on {port}.")
             missed = 0
+            recoveries = 0
+            scan_windows = 0
             while not self.stop_event.is_set():
                 now = time.perf_counter()
                 anchored = (
@@ -326,13 +328,73 @@ class Receiver:
                         next_capture_at=None,
                     )
                 try:
-                    capture = client.capture(150)
+                    scan_windows += 1
+                    # Do not gate a predicted burst. Periodic unfiltered scans
+                    # also provide a backstop if a weak signal misses the gate.
+                    if (
+                        "monitor=1" in client.info
+                        and not anchored
+                        and scan_windows % 32
+                    ):
+                        capture = client.capture(150, monitor=True)
+                    else:
+                        capture = client.capture(150)
                 except CaptureIntegrityError as error:
                     with self.lock:
                         self.state["stats"]["windows"] += 1
                         self.state["stats"]["crc_errors"] += 1
                         self.state["stats"]["rejected"] += 1
                     self._event(str(error), "warning")
+                    missed += 1
+                    continue
+                except (ReceiverProtocolError, OSError) as error:
+                    # No further commands on an unknown binary boundary. Close and
+                    # hardware-reset the board before establishing a new INFO boundary.
+                    client.close()
+                    client = None
+                    with self.lock:
+                        self.state.update(
+                            connected=False,
+                            phase="reconnecting",
+                            message="Reconnecting the USB receiver…",
+                        )
+                        self.state["stats"]["rejected"] += 1
+                    self._event(
+                        "USB framing lost. Resetting and reconnecting the receiver.",
+                        "warning",
+                    )
+                    if recoveries >= 3:
+                        raise ReceiverProtocolError(
+                            "USB connection repeatedly lost framing"
+                        ) from error
+                    for attempt in range(3):
+                        if self.stop_event.wait(0.5 * (attempt + 1)):
+                            break
+                        try:
+                            client = self.client_factory(port=port)
+                            client.command("GAIN 65")
+                            client.command("FREQ 2744")
+                            with self.lock:
+                                self.state.update(connected=True, firmware=client.info)
+                            self._event("USB receiver reconnected.")
+                            break
+                        except (OSError, RuntimeError):
+                            if client is not None:
+                                client.close()
+                                client = None
+                            if attempt == 2:
+                                raise
+                    if self.stop_event.is_set():
+                        break
+                    recoveries += 1
+                    continue
+                recoveries = 0
+                if capture.get("idle"):
+                    with self.lock:
+                        self.state["stats"]["windows"] += 1
+                        self.state["stats"]["missed"] += 1
+                        if capture["failures"]:
+                            self.state["stats"]["rejected"] += 1
                     missed += 1
                     continue
                 try:
