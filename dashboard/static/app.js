@@ -193,7 +193,9 @@ function render(value) {
   const compass = typeof degrees === 'number' ? ['N','NE','E','SE','S','SW','W','NW'][Math.round(degrees / 45) % 8] : '—';
   $('direction').textContent = typeof degrees === 'number' ? `${compass} ${degrees}°` : '—';
   $('windArrow').style.transform = `rotate(${degrees ?? 0}deg)`;
-  $('rain').innerHTML = last ? `${number(last.total_rain_mm)} <small>mm</small>` : '—';
+  const rainUnit = unit === 'F' ? 'in' : 'mm';
+  const rainTotal = last ? last.total_rain_mm / (unit === 'F' ? 25.4 : 1) : null;
+  $('rain').innerHTML = last ? `${number(rainTotal, unit === 'F' ? 2 : 1)} <small>${rainUnit}</small>` : '—';
   $('uv').textContent = last ? number(last.uv_index,0) : '—';
   $('light').innerHTML = last ? `${number(last.light_lux,0)} <small>lx</small>` : '—';
   $('battery').textContent = !last ? '—' : last.battery_ok ? 'Normal' : 'Low';
