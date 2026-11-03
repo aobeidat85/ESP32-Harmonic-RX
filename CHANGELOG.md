@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.4 — Sync-template phase recovery
+
+- Add a fallback that refines phase against the known sync waveform before decoding payload bits.
+- Keep the physical symbol period, bounded phase search, sync-error limit, and all payload checks.
+- Downweight measurements within the nominal 4 µs half-snapshot distance of symbol boundaries.
+- Preserve earlier decoding paths; label new recoveries as sync or sync_repetition.
+- Add measured regression and fresh paired holdout/control fixtures.
+
 ## 0.1.3 — Slower USB transfer and measured repetition combining
 
 - Negotiate 500,000-baud transfers after the 1,000,000-baud startup handshake; retain legacy firmware compatibility.

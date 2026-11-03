@@ -55,7 +55,7 @@ This is one tested station/board combination. The EU868 MHz variant and other VE
 
 Later live prototype readings changed as new packets arrived. The current dashboard screenshot includes fresh readings received after the local-clock fix, alongside earlier saved history. [The earlier live prototype screenshot](docs/images/dashboard-prototype-live.jpg) shows new packets arriving. These are real UI captures, not synthetic mockups. Wind, rain, UV, light, and battery fields are decoded but were not independently compared with the console.
 
-The simple additive checksum can miss compensating bit errors. Stable IDs, repeated fields, console comparison, and negative controls provide additional evidence; they do not make reception error-free. Up to two errors are permitted in the 40-bit sync pattern. No payload bits are flipped to force a checksum match. When independent copies fail, the decoder can combine measured symbol evidence from repeated copies, then apply all the same payload checks. Readings report their recovery method and repetition count.
+The simple additive checksum can miss compensating bit errors. Stable IDs, repeated fields, console comparison, and negative controls provide additional evidence; they do not make reception error-free. Up to two errors are permitted in the 40-bit sync pattern. No payload bits are flipped to force a checksum match. When independent copies fail, the decoder can combine measured symbol evidence from repeated copies, then apply all the same payload checks. A further fallback fits phase to the known sync waveform, keeping the measured symbol period and all payload checks. Readings report their recovery method and repetition count.
 
 ## Supported build
 

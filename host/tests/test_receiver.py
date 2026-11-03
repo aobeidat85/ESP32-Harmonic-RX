@@ -15,6 +15,46 @@ FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
 
 
 class ReceiverTests(unittest.TestCase):
+    def test_sync_template_fresh_holdout_and_quiet_control(self):
+        from unittest.mock import patch
+
+        with np.load(FIXTURES / "vevor-sync-holdout.npz", allow_pickle=False) as saved:
+            rows = saved["rows"]
+        args = (rows["us"], rows["p0"], rows["p1"])
+        with patch("esp32_harmonic_rx.vevor._recover_sync_timing", return_value=[]):
+            previous, _ = decode_clocked(*args)
+        self.assertFalse(previous["valid_packets"])
+        result, _ = decode_clocked(*args)
+        packet = result["valid_packets"][0]
+        self.assertEqual(
+            packet["payload_hex"], "aa0014ab1402a25a01150401520fc901010102c503"
+        )
+        self.assertEqual(packet["clock_source"], "sync")
+        self.assertGreaterEqual(packet["sync_correlation"], 0.65)
+        with np.load(FIXTURES / "vevor-sync-control.npz", allow_pickle=False) as saved:
+            quiet = saved["rows"]
+        rejected, _ = decode_clocked(quiet["us"], quiet["p0"], quiet["p1"])
+        self.assertFalse(rejected["valid_packets"])
+
+    def test_sync_template_recovers_measured_timing_regression(self):
+        from unittest.mock import patch
+
+        with np.load(FIXTURES / "vevor-sync-timing.npz", allow_pickle=False) as saved:
+            rows = saved["rows"]
+        args = (rows["us"], rows["p0"], rows["p1"])
+        with patch("esp32_harmonic_rx.vevor._recover_sync_timing", return_value=[]):
+            previous, _ = decode_clocked(*args)
+        self.assertFalse(previous["valid_packets"])
+        result, _ = decode_clocked(*args)
+        self.assertEqual(len(result["valid_packets"]), 1)
+        packet = result["valid_packets"][0]
+        self.assertEqual(
+            packet["payload_hex"], "aa0014ab1402ae55011003016a0fc9010101b894b9"
+        )
+        self.assertEqual(packet["clock_source"], "sync_repetition")
+        self.assertLessEqual(packet["preamble_bit_errors"], 2)
+        self.assertEqual(packet["repetition_count"], 2)
+
     def test_repeated_measured_copies_recover_without_checksum_search(self):
         from unittest.mock import patch
 

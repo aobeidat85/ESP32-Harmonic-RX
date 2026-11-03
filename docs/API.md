@@ -78,3 +78,7 @@ A transferred `MON` candidate uses the normal `FSK` header with one extra final 
 `ReceiverClient(preferred_baud=500000)` is the default. Startup/reset is always at 1,000,000 baud. The client only requests BAUD when the feature is advertised, changes its serial-port rate after the old-rate ACK, and requires INFO to confirm the new rate. `preferred_baud=1000000` keeps the original transfer speed. Direct API users must close/reset on failed negotiation.
 
 A recovered packet can include `clock_source=repetition` and `repetition_count`. Dashboard/CLI weather records expose these as `recovery_method` and `repetition_count`. Repetition combining sums measured soft evidence, then requires the unchanged header/checksum/counter checks. It is distinct from a single-copy decode and from checksum-directed bit flipping.
+
+## Sync-template recovery metadata (0.1.4)
+
+Packet `clock_source` / weather `recovery_method` may also be `sync` or `sync_repetition`. A single-copy sync recovery includes its normalized `sync_correlation`. The fallback holds the measured symbol period fixed and fits phase to the known sync waveform; it never selects phase using payload validity. Firmware/protocol are unchanged from 0.1.3, including the negotiated slower transfer rate.

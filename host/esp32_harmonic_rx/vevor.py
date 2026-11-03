@@ -76,6 +76,8 @@ def decode_clocked(t, p0, p1):
     # Do not create alternate readings when an independent copy already passed.
     if not accepted:
         result["valid_packets"] = _combine_repetitions(copies)
+    if not result["valid_packets"]:
+        result["valid_packets"] = _recover_sync_timing(copies)
     result["clock_refinements"] = refinements
     return result, ratio
 
@@ -98,7 +100,110 @@ def _soft_copy(t, ratio, clock, candidate):
         soft=soft,
         coherence=clock["clock_coherence"],
         errors=candidate["preamble_bit_errors"],
+        sample_t=t,
+        sample_ratio=ratio * (-1 if candidate["inverted"] else 1),
     )
+
+
+def _recover_sync_timing(copies):
+    """Fit phase to the known sync waveform, never to payload/checksum results."""
+    refined = []
+    single = []
+    for copy in copies:
+        t, ratio = copy["sample_t"], copy["sample_ratio"]
+        period, original_sync = copy["period"], copy["sync"]
+        training = (t >= original_sync + period) & (t < original_sync + 39 * period)
+        if training.sum() < 40:
+            continue
+        sample_t, measured = t[training], ratio[training]
+        shifts = np.linspace(-0.35 * period, 0.35 * period, 63)
+        scores = []
+        # An 8 us snapshot mixes neighboring symbols near a transition. Fit a
+        # fixed softened sync template, holding the transition-derived period.
+        half_width = 4 / period
+        for shift in shifts:
+            u = (sample_t - original_sync - shift) / period
+            index = np.floor(u).astype(int)
+            fraction = u - index
+            model = PATTERN[index].copy()
+            left, right = fraction < half_width, fraction > 1 - half_width
+            model[left] = (
+                PATTERN[index[left] - 1] * (half_width - fraction[left])
+                + PATTERN[index[left]] * (half_width + fraction[left])
+            ) / (2 * half_width)
+            model[right] = (
+                PATTERN[index[right]] * (1 + half_width - fraction[right])
+                + PATTERN[index[right] + 1] * (fraction[right] - 1 + half_width)
+            ) / (2 * half_width)
+            scores.append(
+                np.dot(measured, model)
+                / np.sqrt(max(np.dot(measured, measured) * np.dot(model, model), 1e-9))
+            )
+        peak = max(scores)
+        if peak < 0.65:
+            continue
+        # Center a near-flat best-fit region instead of favoring a grid endpoint.
+        shift = float(np.mean(shifts[np.asarray(scores) >= peak - 0.001]))
+        sync = original_sync + shift
+        u = (t - sync) / period
+        cells = np.floor(u).astype(int)
+        fraction = u - cells
+        confidence = np.clip(np.minimum(fraction, 1 - fraction) * period / 4, 0, 1)
+        preamble = (cells >= 0) & (cells < 40)
+        if len(np.unique(cells[preamble])) != 40:
+            continue
+        preamble_soft = np.bincount(
+            cells[preamble],
+            weights=ratio[preamble] * confidence[preamble],
+            minlength=40,
+        )
+        errors = int(np.count_nonzero((preamble_soft > 0) != (PATTERN > 0)))
+        if errors > 2:
+            continue
+        selected = (cells >= 40) & (cells < 208)
+        indices = cells[selected] - 40
+        if len(np.unique(indices)) != 168:
+            continue
+        soft = np.bincount(
+            indices, weights=ratio[selected] * confidence[selected], minlength=168
+        )
+        refined.append(
+            dict(
+                sync=sync,
+                period=period,
+                soft=soft,
+                coherence=copy["coherence"],
+                errors=errors,
+            )
+        )
+        payload = np.packbits((soft > 0).astype(np.uint8)).tobytes()
+        try:
+            fields = parse_payload(payload)
+        except ValueError:
+            continue
+        single.append(
+            dict(
+                payload_hex=payload.hex(),
+                preamble_time_us=sync,
+                preamble_bit_errors=errors,
+                header_valid=True,
+                checksum_valid=True,
+                counter_valid=True,
+                inverted=False,
+                sensor_id=fields["sensor_id"].lower(),
+                temperature_C=fields["temperature_C"],
+                humidity=fields["humidity_percent"],
+                clock_period_us=period,
+                clock_source="sync",
+                sync_correlation=float(peak),
+            )
+        )
+    if single:
+        return single
+    combined = _combine_repetitions(refined)
+    for packet in combined:
+        packet["clock_source"] = "sync_repetition"
+    return combined
 
 
 def _combine_repetitions(copies):

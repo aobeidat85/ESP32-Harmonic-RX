@@ -50,5 +50,24 @@
     "temperature_C": 17.5,
     "humidity_percent": 90,
     "result": "Neither independent decoding path accepts a packet; repeated-copy combining passes all checks. Paired between-burst control remains rejected."
+  },
+  "sync_timing_regression": {
+    "file": "vevor-sync-timing.npz",
+    "kind": "Real earlier capture rejected by whole/local/repetition paths",
+    "expected_payload_hex": "aa0014ab1402ae55011003016a0fc9010101b894b9",
+    "temperature_C": 18.6,
+    "humidity_percent": 85,
+    "method": "sync_repetition"
+  },
+  "sync_timing_holdout": {
+    "file": "vevor-sync-holdout.npz",
+    "control_file": "vevor-sync-control.npz",
+    "kind": "Fresh capture collected after the sync-template rules were fixed",
+    "date": "2026-11-02",
+    "expected_payload_hex": "aa0014ab1402a25a01150401520fc901010102c503",
+    "temperature_C": 17.4,
+    "humidity_percent": 90,
+    "method": "sync",
+    "previous_decoder_accepted": false
   }
 }
