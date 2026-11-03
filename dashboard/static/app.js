@@ -184,8 +184,11 @@ function render(value) {
   $('temperatureUnit').textContent = `°${unit}`;
   $('humidity').textContent = last ? number(last.humidity_percent,0) : '—';
   $('humidityFill').style.width = last ? `${Math.max(0, Math.min(100,last.humidity_percent))}%` : '0%';
-  $('wind').textContent = last ? number(last.wind_avg_km_h) : '—';
-  $('gust').textContent = last ? `${number(last.wind_gust_km_h)} km/h` : '—';
+  const windUnit = unit === 'F' ? 'mph' : 'km/h';
+  const windFactor = unit === 'F' ? 1 / 1.609344 : 1;
+  $('wind').textContent = last ? number(last.wind_avg_km_h * windFactor) : '—';
+  $('windUnit').textContent = windUnit;
+  $('gust').textContent = last ? `${number(last.wind_gust_km_h * windFactor)} ${windUnit}` : '—';
   const degrees = last?.wind_direction_degrees;
   const compass = typeof degrees === 'number' ? ['N','NE','E','SE','S','SW','W','NW'][Math.round(degrees / 45) % 8] : '—';
   $('direction').textContent = typeof degrees === 'number' ? `${compass} ${degrees}°` : '—';
