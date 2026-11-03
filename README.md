@@ -2,19 +2,38 @@
 
 **Experimental two-tone RF capture with an original ESP32, with a VEVOR YT60234 weather-station example.**
 
+[![Build and test](https://github.com/aobeidat85/ESP32-Harmonic-RX/actions/workflows/ci.yml/badge.svg)](https://github.com/aobeidat85/ESP32-Harmonic-RX/actions/workflows/ci.yml) · [Releases](https://github.com/aobeidat85/ESP32-Harmonic-RX/releases) · [GPL-3.0-only](LICENSE)
+
 An Arduino capture library, Python decoder, and local dashboard developed from a working bench experiment. Receiver hardware is one ESP32 development board and its USB cable; the ESP32 decodes packets and a PC displays the weather reports. A Python RF decoder remains available for recorded captures and explicit raw diagnostics.
 
 > **RF interpretation:** VEVOR weather payloads were recovered with a requested receive setting of **2744 MHz**, near an apparent **2.745 GHz** signal. A third harmonic of the nominal 915 MHz transmitter is a plausible explanation. Absolute frequency/PLL lock and the harmonic origin have not been independently measured. **This project does not demonstrate native 915 MHz reception.**
 
-![VEVOR weather dashboard](docs/images/dashboard-live.jpg)
+![Live weather dashboard showing Fahrenheit, wind speed in mph, and cumulative rain in inches](docs/images/dashboard-overview.jpg)
 
-[Full dashboard screenshot](docs/images/dashboard-full.jpg) · [How it works](docs/HOW_IT_WORKS.md) · [Validation and limitations](docs/VALIDATION.md)
+Live dashboard captured on November 3, 2026. Values are actual received readings; rain is the sensor's cumulative total.
+
+[Dashboard guide and screenshots](docs/DASHBOARD.md) · [How it works](docs/HOW_IT_WORKS.md) · [API and protocol](docs/API.md) · [Validation and limitations](docs/VALIDATION.md)
+
+## Features
+
+- **One ESP32 and a USB cable.** No additional receiver module is used in the tested setup.
+- **Onboard decoding.** Clock recovery, repetition combining, and packet checks run on the ESP32; USB carries weather reports and compact diagnostics.
+- **Coordinated units.** Select Fahrenheit for mph and inches, or Celsius for km/h and millimetres. The choice is remembered in the browser.
+- **Local dashboard.** Live and saved readings, history charts, packet inspection, CSV export, and receiver controls.
+- **Visible diagnostics.** Capture outcomes, validation failures, measured decoding time, USB report size, and persistent logs.
+
+| Dashboard selection | Temperature | Wind and gusts | Cumulative rain |
+|---|---|---|---|
+| °F | Fahrenheit | mph | inches |
+| °C | Celsius | km/h | mm |
+
+Unit changes affect the display. Stored readings and CSV field units remain explicit and unchanged. See the [dashboard guide](docs/DASHBOARD.md) for conversions and screenshot details.
 
 ## The idea
 
 Instead of transferring every I/Q sample over a slow USB-to-UART bridge, the ESP32 repeatedly captures a short RF snapshot and measures the energy at two configured tone offsets. The ESP32 reconstructs the FSK symbol clock, finds the VEVOR packet, validates it, and extracts the weather fields. Normal reception sends only CRC-framed weather reports and compact diagnostic summaries over USB. The dashboard does not run RF decoding in this mode.
 
-The ESP32 captures ** 128 nominal 16 MS/s samples per observation** and gathers observations over a **150 ms window**. Reception has gaps; this is not continuous SDR streaming. The measured observation spacing in the original experiment was typically 35–36 µs.
+The ESP32 captures **128 nominal 16 MS/s samples per observation** and gathers observations over a **150 ms window**. Reception has gaps; this is not continuous SDR streaming. The measured observation spacing in the original experiment was typically 35–36 µs.
 
 ```mermaid
 flowchart LR
@@ -54,7 +73,7 @@ This is one tested station/board combination. The EU868 MHz variant and other VE
 | Tested interpretation | Correctly structured weather payloads with checksum and counter checks |
 | Unverified | Absolute RF frequency, actual PLL lock, harmonic origin, direct 915 MHz reception, useful range |
 
-Later live prototype readings changed as new packets arrived. The current dashboard screenshot includes fresh readings received after the local-clock fix, alongside earlier saved history. [The earlier live prototype screenshot](docs/images/dashboard-prototype-live.jpg) shows new packets arriving. These are real UI captures, not synthetic mockups. Wind, rain, UV, light, and battery fields are decoded but were not independently compared with the console.
+Current screenshots show the onboard decoder and latest unit controls during live reception. The [screenshot gallery](docs/DASHBOARD.md#screenshots) distinguishes these from earlier prototype images. Wind, rain, UV, light, and battery fields are decoded but were not independently compared with the console.
 
 The simple additive checksum can miss compensating bit errors. Stable IDs, repeated fields, console comparison, and negative controls provide additional evidence; they do not make reception error-free. Up to two errors are permitted in the 40-bit sync pattern. No payload bits are flipped to force a checksum match. When independent copies fail, the decoder can combine measured symbol evidence from repeated copies, then apply all the same payload checks. A further fallback fits phase to the known sync waveform, keeping the measured symbol period and all payload checks. Readings report their recovery method and repetition count.
 
@@ -161,9 +180,7 @@ docs/                        Idea, API, validation, and real UI screenshots
 
 ```sh
 python -m unittest discover -s host/tests -v
-cd dashboard
-python -m unittest -v test_dashboard
-cd ..
+python -m unittest discover -s dashboard -p 'test_*.py' -v
 pio run -d examples/VEVORWeatherStation
 ```
 

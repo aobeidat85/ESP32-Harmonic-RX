@@ -1,5 +1,7 @@
 # API and USB protocol
 
+For dashboard controls, display-unit conversions, and current screenshots, see the [dashboard guide](DASHBOARD.md). The °F / °C selection changes presentation only; weather-report and CSV fields retain their explicit units.
+
 ## Onboard weather decoding (0.2.0)
 
 The included sketch advertises `weather=1`. The dashboard and live CLI use this mode automatically; legacy firmware retains PC decoding. The ESP32 captures a 150 ms window, then performs clock recovery, local refinement, measured-copy combining, sync-template fitting, payload validation, and field extraction. Capture and decoding are sequential, not concurrent. The PC independently checks report integrity and field consistency; it does not reconstruct RF bits in this mode.

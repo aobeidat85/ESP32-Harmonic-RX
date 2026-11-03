@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.2.1 - Coordinated display units and refreshed documentation
+
+- Display wind speed and gusts in mph with Fahrenheit, or km/h with Celsius.
+- Display cumulative rain in inches with Fahrenheit, or mm with Celsius.
+- Preserve the browser's existing unit preference and the original stored/exported field units.
+- Refresh the README with the current live overview, feature summary, unit table, and documentation links.
+- Add a dashboard guide with imperial, metric, onboard-receiver, and diagnostic screenshots captured from live reception.
+- Retain earlier screenshots as clearly labeled experiment history.
+
 ## 0.2.0 - Onboard VEVOR decoding
 
 - Move normal packet clock recovery, local refinement, repeated-copy combining, sync-template fitting, validation, and weather extraction onto the ESP32.

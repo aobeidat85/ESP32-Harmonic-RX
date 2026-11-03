@@ -1,6 +1,6 @@
 # ESP32-Harmonic-RX host tools
 
-Python transport and VEVOR decoding for the Arduino USB bridge in this repository.
+Python transport, recorded-capture decoding, and a local dashboard for the ESP32 receiver in this repository. Current firmware decodes live VEVOR packets on the board and sends weather reports over USB. The PC RF decoder remains available for replay and legacy firmware.
 
 From the repository root:
 
@@ -23,4 +23,6 @@ for packet in result["valid_packets"]:
     print(parse_payload(packet["payload_hex"]))
 ```
 
-`ReceiverClient` speaks the included `VEVOR_FSK` bridge protocol, not the standard ESP-SDR protocol. `CaptureIntegrityError` means a complete USB frame failed its CRC; discard that frame. A short read or malformed header requires reconnecting before issuing another capture.
+`ReceiverClient` speaks the included `VEVOR_FSK` protocol, not the standard ESP-SDR protocol. Use `client.weather(150)` with firmware advertising `weather=1`; `client.capture(150)` explicitly requests raw RF measurements for diagnostics. `CaptureIntegrityError` means a complete USB frame failed its CRC; discard that frame. A short read or malformed header requires reconnecting before issuing another capture.
+
+The dashboard's unit selector coordinates temperature, wind, gusts, and cumulative rain: **°F / mph / in** or **°C / km/h / mm**. Stored and exported units remain explicit. See the [dashboard guide and current screenshots](../docs/DASHBOARD.md) and [USB protocol](../docs/API.md).
