@@ -1,5 +1,15 @@
 # Validation record
 
+## Onboard decoder check - 2026-11-03
+
+Version 0.2.0 was flashed to the original ESP32. All 11 retained RF fixtures produced the same accepted station-14AB payload sets as the PC reference when replayed through the actual board, including all negative controls. Measured decoder runtimes were 0.570-0.762 seconds, with roughly 17.6 KB free internal heap after initialization. Replay results are not counted as live weather readings.
+
+The first unoptimized port took approximately 12-14 seconds. A coarse/fine physical clock search and single-precision compensated accumulation reduced that runtime. A short USB weather report was observed during testing; subsequent paced 64-byte UART writes passed the full fixture suite. CRC checks and reconnect handling remain necessary.
+
+After replay, normal RF acquisition recovered six consecutive accepted burst windows from station 14AB about 20 seconds apart. These live reports decoded in approximately 0.63-0.68 seconds and transferred 943-1566 JSON bytes per window instead of roughly 50 KB of RF observations. The 249-window session count included 243 quiet or failed acquisition windows before lock, so it is not a transmission success-rate measurement. No USB CRC errors were recorded in that live interval. Fields included 18.7 C and 91% RH; no new console comparison was requested for this check.
+
+See [machine-readable hardware replay and live evidence](onboard-validation.json) and [the onboard Receiver panel](images/dashboard-onboard-decoder.png). This validates the tested captures and a short live run, not continuous reception, range, RF sensitivity improvement, or equivalence on arbitrary RF input. New onboard diagnostics contain aggregate failure counts rather than transferred RF arrays.
+
 ## Recorded experiment
 
 Date: 2026-11-02. Receiver: ESP32-D0WD-V3 revision 3.1, 40 MHz crystal, original board antenna, USB-to-UART connection to a PC. The user placed the PC and receiver approximately 0.5–1 m from the outdoor VEVOR sensor. The separate GPIO-harmonic test sender was unplugged during VEVOR reception.

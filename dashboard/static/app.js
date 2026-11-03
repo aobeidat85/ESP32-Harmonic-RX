@@ -128,7 +128,15 @@ function renderHistory(readings) {
   $('historyCount').textContent = `${readings.length} ${readings.length === 1 ? 'reading' : 'readings'}`;
 }
 function renderTrace(trace) {
-  if (!trace) { $('signalChart').innerHTML = '<div class="chart-empty">No signal capture available yet.</div>'; return; }
+  if (!trace) {
+    const onboard = (state?.firmware || '').includes('weather=1');
+    $('signalChart').innerHTML = `<div class="chart-empty">${onboard ? 'RF arrays stay on the ESP32. Only weather reports and diagnostic summaries are transferred.' : 'No signal capture available yet.'}</div>`;
+    $('traceBadge').textContent = onboard ? 'Onboard decoding' : 'No capture';
+    $('traceBadge').className = 'badge';
+    $('signalDetails').textContent = onboard ? 'No raw RF transfer' : 'No capture loaded';
+    traceKey = '';
+    return;
+  }
   const key = `${trace.source}-${trace.received_at}-${trace.observations}-${trace.valid_packets}`;
   if (key === traceKey) return;
   traceKey = key;
@@ -204,6 +212,9 @@ function render(value) {
   $('sessionAccepted').textContent = number(value.stats.accepted,0);
   $('sessionWindows').textContent = number(value.stats.windows,0);
   const baud = value.firmware?.match(/\bbaud=(\d+)/)?.[1] || '1000000';
+  $('decoderLocation').textContent = value.connected ? ((value.firmware || '').includes('weather=1') ? 'ESP32 · weather reports over USB' : 'PC · raw RF transfer') : 'Not connected';
+  const deviceReport = (value.diagnostics || []).find(d => d.processing === 'esp32');
+  $('deviceDecodeTime').textContent = deviceReport ? `${number(deviceReport.decode_us / 1000, 0)} ms · ${deviceReport.report_bytes} bytes over USB` : '—';
   $('serialSpeed').textContent = connected ? number(Number(baud),0) + ' baud' : 'Not connected';
   $('navCount').textContent = number(value.readings.length,0);
   $('activityList').innerHTML = value.events.slice(0,2).map(eventHtml).join('');
@@ -224,7 +235,7 @@ function renderDiagnostics(value) {
   const opened = new Set([...document.querySelectorAll('#captureDiagnostics details[open]')].map(el => el.dataset.id));
   const labels = {packet_accepted:'Packet accepted', activity_gate_below_threshold:'Activity gate did not detect a burst', insufficient_fsk_transitions:'Too few strong FSK transitions', sync_pattern_mismatch:'Sync pattern did not match', no_complete_payload_candidate:'Sync found, but no complete payload candidate', payload_header_failed:'Header failure among candidates', payload_checksum_failed:'Checksum failure among candidates', paired_counter_failed:'Counter failure among candidates', station_id_filtered:'Different sensor ID', duplicate_packet:'Packet already received', usb_io_failed:'USB read/write failed', usb_crc_failed:'USB CRC failed', usb_boundary_lost:'USB framing lost', invalid_measurements:'Invalid capture measurements', no_accepted_packet:'No payload passed all checks'};
   $('captureDiagnostics').innerHTML = records.map(d => {
-    const details = {sequence:d.sequence, session:d.session, decoder_version:d.decoder_version, profile:d.profile, ignored_sensor_ids:d.ignored_sensor_ids, accepted_payloads:d.accepted_payloads, observations:d.observations, preamble_errors:d.preamble_errors, clock_period_us:d.clock_period_us, clock_coherence:d.clock_coherence, transitions:d.transitions, candidate_checks:d.candidate_checks, transport:d.transport, error:d.error, timing:d.timing, gate_edges:d.gate_edges, gate_coherence:d.gate_coherence, snapshot_samples:d.snapshot_samples};
+    const details = {processing:d.processing, decode_us:d.decode_us, report_bytes:d.report_bytes, device_checks:d.device_checks, sequence:d.sequence, session:d.session, decoder_version:d.decoder_version, profile:d.profile, ignored_sensor_ids:d.ignored_sensor_ids, accepted_payloads:d.accepted_payloads, observations:d.observations, preamble_errors:d.preamble_errors, clock_period_us:d.clock_period_us, clock_coherence:d.clock_coherence, transitions:d.transitions, candidate_checks:d.candidate_checks, transport:d.transport, error:d.error, timing:d.timing, gate_edges:d.gate_edges, gate_coherence:d.gate_coherence, snapshot_samples:d.snapshot_samples};
     const evidence = d.raw_file ? `<a href="/api/diagnostics/raw/${encodeURIComponent(d.raw_file)}">Raw capture</a>` : 'No raw transfer';
     return `<tr><td>${escapeHtml(timeLabel(d.time))}</td><td>${escapeHtml(d.outcome.replaceAll('_',' '))}</td><td>${(d.reasons || []).map(r => escapeHtml(labels[r] || r)).join('; ')}<details data-id="${escapeHtml(d.id)}" ${opened.has(d.id) ? 'open' : ''}><summary>Check details</summary><pre class="diagnostic-details">${escapeHtml(JSON.stringify(details,null,2))}</pre></details></td><td>${evidence}</td></tr>`;
   }).join('') || '<tr><td colspan="4">No matching diagnostics yet. Logging begins with new captures.</td></tr>';

@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 """CRC-checked client for the included USB bridge example."""
 
-import serial, time, zlib
+import serial, time, zlib, json, math
 import numpy as np
 
 
@@ -86,6 +86,71 @@ class ReceiverClient:
         if not line or line.startswith("ERR"):
             raise RuntimeError(cmd + " " + repr(line))
         return line
+
+    def weather(self, ms=150, *, monitor=False, replay_rows=None):
+        """Acquire/decode on the board. Transfer only a CRC-framed weather report."""
+        start = time.perf_counter()
+        old_timeout = self.s.timeout
+        try:
+            self.s.timeout = 20
+            if replay_rows is None:
+                line = self.command(("WM " if monitor else "WX ") + str(ms))
+            else:
+                raw_rows = replay_rows.tobytes()
+                if not 128 <= len(replay_rows) <= 6144 or len(raw_rows) != len(replay_rows)*12:
+                    raise ValueError("Invalid replay observation layout")
+                if self.command(f"REPLAY {len(replay_rows)} {zlib.crc32(raw_rows)&0xffffffff:08x}") != "READY":
+                    raise ReceiverProtocolError("Replay was not acknowledged")
+                self.s.write(raw_rows)
+                line = self.s.readline().decode(errors="replace").strip()
+            header_received = time.perf_counter()
+            fields = line.split()
+            if len(fields) != 3 or fields[0] != "WX":
+                raise ReceiverProtocolError("Invalid onboard weather header")
+            try:
+                size, expected = int(fields[1]), int(fields[2], 16)
+            except ValueError as error:
+                raise ReceiverProtocolError("Invalid weather frame size/CRC") from error
+            if not 0 < size <= 6144:
+                raise ReceiverProtocolError("Weather report exceeds limit")
+            raw = self.s.read(size)
+            if len(raw) != size:
+                raise ReceiverProtocolError("Short weather report", raw=raw,
+                                            details={"expected_bytes": size, "received_bytes": len(raw)})
+            if zlib.crc32(raw) & 0xffffffff != expected:
+                raise CaptureIntegrityError("Weather report CRC mismatch", raw=raw)
+            try:
+                report = json.loads(raw)
+                if report["version"] != 1 or not 128 <= report["count"] <= 6144:
+                    raise ValueError("Invalid report version/count")
+                if not 0 < report["elapsed_us"] <= 1000000 or not 0 <= report["decode_us"] < 19000000:
+                    raise ValueError("Invalid board timing")
+                if not isinstance(report["valid_packets"], list) or len(report["valid_packets"]) > 8:
+                    raise ValueError("Invalid packet list")
+                # Independent transport sanity check; RF timing/bit recovery ran on ESP32.
+                from .vevor import parse_payload
+                for packet in report["valid_packets"]:
+                    expected_fields = parse_payload(packet["payload_hex"])
+                    for key, value in expected_fields.items():
+                        actual = packet["weather"][key]
+                        if isinstance(value, float):
+                            if not isinstance(actual, (int, float)) or not math.isfinite(actual) or abs(actual-value) > .011:
+                                raise ValueError("Weather fields do not match validated payload")
+                        elif actual != value:
+                            raise ValueError("Weather fields do not match validated payload")
+                    if not 0 <= packet["preamble_time_us"] <= report["elapsed_us"] or not 86 <= packet["clock_period_us"] <= 90.5:
+                        raise ValueError("Invalid packet timing")
+                if report["invalid"] or report["failures"]:
+                    raise ValueError("Board rejected incomplete/invalid measurements")
+            except (ValueError, KeyError, TypeError) as error:
+                raise ReceiverProtocolError("Invalid onboard weather report: " + str(error)) from error
+            return dict(onboard=True, result=report, count=report["count"], failures=report["failures"],
+                        elapsed_us=report["elapsed_us"], host_start=start, host_end=time.perf_counter(),
+                        report_bytes=size, snapshot_samples=getattr(self, "snapshot_samples", 128),
+                        estimated_window_host_start=header_received-(report["elapsed_us"]+report["decode_us"])/1e6
+                        -(len(line)+1)*10/getattr(self.s,"baudrate",500000))
+        finally:
+            self.s.timeout = old_timeout
 
     def capture(self, ms=120, monitor=False):
         start = time.perf_counter()

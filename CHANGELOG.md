@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.2.0 - Onboard VEVOR decoding
+
+- Move normal packet clock recovery, local refinement, repeated-copy combining, sync-template fitting, validation, and weather extraction onto the ESP32.
+- Send compact CRC-framed weather reports and aggregate diagnostics instead of raw RF arrays; retain explicit CAP/MON debugging and recorded-capture replay.
+- Use bounded, segmented integer-access scratch storage in the ESP32's 32-bit heap, preserving the reserved RF aperture and linker checks.
+- Reduce measured board replay decoding from about 12-14 seconds to 0.57-0.76 seconds using a physical coarse/fine clock search and single-precision compensated accumulation.
+- Add weather-report client/CLI/dashboard support, decode-time and USB-byte metrics, native C++ fixture checks in CI, and actual-board replay tooling.
+- All 11 real saved captures match the reference on the board; fresh live station packets also decoded onboard. Reception remains experimental and intermittent.
+- Pace weather-report UART writes after observing a short report. CRC checks and bounded dashboard reconnects remain required.
+
 ## 0.1.5 — Capture diagnostics and adaptive burst timing
 
 - Persist every capture outcome and candidate-level validation checks in a diagnostic journal.

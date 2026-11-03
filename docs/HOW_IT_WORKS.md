@@ -19,13 +19,14 @@ The revised sampler reduces the data on the ESP32:
 3. Trigger a 128-sample RF snapshot, then return memory ownership to the CPU.
 4. Correlate the complex samples with two precomputed Hann-windowed tones.
 5. Store only timestamp, tone0 power, and tone1 power.
-6. Repeat for up to 150 ms, then transfer the observation array with a CRC32.
+6. Repeat for up to 150 ms, then decode the buffered measurements on the ESP32.
+7. Send a CRC-framed weather report and diagnostic summary over USB; retain RF arrays on the board.
 
 Each observation integrates approximately 8 µs of nominal 16 MS/s data. Processing creates gaps between observations; observed spacing was typically 35–36 µs in the tested build. The algorithm preserves timestamps rather than pretending the samples are continuous.
 
-## Host decoding
+## Onboard decoding and recorded-capture reference
 
-Python estimates a quiet tone-power baseline, forms a log ratio between the tone energies, and identifies strong frequency transitions. It estimates symbol period and phase from those transitions **before consulting the payload checksum**. Observations are grouped into symbol cells.
+The C++ onboard decoder estimates a quiet tone-power baseline, forms a log ratio between the tone energies, and identifies strong frequency transitions. It estimates symbol period and phase from those transitions **before consulting the payload checksum**. Observations are grouped into symbol cells. The Python implementation remains a reference for saved captures and explicit raw diagnostics. The onboard clock search uses a coarse grid followed by local peak refinement to reduce runtime.
 
 After detecting a sync, the decoder also estimates a local clock in one fixed 40 ms interval: 16 ms before the sync and 24 ms after it. The local timing is eligible only when transition coherence is at least 0.3 and improves on the whole-window estimate. This selection uses physical transitions, without consulting checksum results or modifying payload bits. It avoids letting noise and small timing drift across the full 150 ms window corrupt a short packet.
 
@@ -35,9 +36,9 @@ Searching timing parameters until a checksum passes can produce misleading alter
 
 ## The dashboard
 
-The local Python server owns the serial connection and runs decoding in a worker thread. It searches for a burst, then schedules captures near the next expected 20-second interval. Failed payload checks do not update the weather cards. A fully consumed serial frame with a CRC error is discarded; an uncertain serial boundary ends the connection so it can be reset.
+The local Python server owns the serial connection. Its worker requests onboard capture/decoding and receives weather reports. It searches for a burst, then schedules captures near the next expected 20-second interval. Failed payload checks do not update the weather cards. A fully consumed serial frame with a CRC error is discarded; an uncertain serial boundary triggers a bounded reconnect. Legacy firmware still uses the PC RF decoder.
 
-Accepted readings are appended to a local JSONL file. The browser polls the server, displays recorded and live readings separately, plots history and signal energy, and exports the most recent 300 displayed readings as CSV. No cloud service is involved.
+Accepted readings are appended to a local JSONL file. The browser polls the server, displays recorded and live readings separately, plots weather history, and exports the most recent 300 displayed readings as CSV. New onboard captures have no transferred signal trace or raw RF download. No cloud service is involved.
 
 ## What to reproduce next
 

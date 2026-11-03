@@ -37,7 +37,7 @@ def utc(timestamp=None):
 
 
 def weather_fields(packet):
-    fields = parse_payload(packet["payload_hex"])
+    fields = dict(packet["weather"]) if "weather" in packet else parse_payload(packet["payload_hex"])
     fields["preamble_bit_errors"] = packet.get("preamble_bit_errors")
     fields["repetition_count"] = packet.get("repetition_count", 1)
     fields["recovery_method"] = packet.get("clock_source", "whole")
@@ -235,24 +235,31 @@ class Receiver:
     def _process_capture(self, capture):
         with self.lock:
             self.state["stats"]["windows"] += 1
-        rows = capture["rows"]
-        if capture["failures"] or len(rows) < 256:
-            raise ValueError("The receiver reported an incomplete capture.")
-        if not np.isfinite(rows["p0"]).all() or not np.isfinite(rows["p1"]).all():
-            raise ValueError("The capture contains invalid tone measurements.")
-        if not (np.diff(rows["us"].astype(float)) > 0).all():
-            raise ValueError("Capture timestamps are not increasing.")
-        if len(np.unique(rows["p0"])) < 10:
-            raise ValueError(
-                "The receiver measurements are constant. Reconnect the receiver."
+        onboard = capture.get("onboard", False)
+        rows = None if onboard else capture["rows"]
+        if onboard:
+            result, ratio = capture["result"], None
+            if result.get("transitions", 0) < 20:
+                result["reason"] = "Too few strong FSK transitions"
+        else:
+            rows = capture["rows"]
+            if capture["failures"] or len(rows) < 256:
+                raise ValueError("The receiver reported an incomplete capture.")
+            if not np.isfinite(rows["p0"]).all() or not np.isfinite(rows["p1"]).all():
+                raise ValueError("The capture contains invalid tone measurements.")
+            if not (np.diff(rows["us"].astype(float)) > 0).all():
+                raise ValueError("Capture timestamps are not increasing.")
+            if len(np.unique(rows["p0"])) < 10:
+                raise ValueError(
+                    "The receiver measurements are constant. Reconnect the receiver."
+                )
+            result, ratio = decode_clocked(
+                rows["us"].astype(float),
+                rows["p0"].astype(float),
+                rows["p1"].astype(float),
+                snapshot_samples=capture.get("snapshot_samples", 128),
+                preferred_sensor_id=self.state["config"]["sensor_id"],
             )
-        result, ratio = decode_clocked(
-            rows["us"].astype(float),
-            rows["p0"].astype(float),
-            rows["p1"].astype(float),
-            snapshot_samples=capture.get("snapshot_samples", 128),
-            preferred_sensor_id=self.state["config"]["sensor_id"],
-        )
         received_at = utc()
         accepted = []
         ignored_ids = []
@@ -292,7 +299,7 @@ class Receiver:
                 self.state["stats"]["missed"] += 1
             self.state["readings"].extend(accepted)
             self.state["readings"] = self.state["readings"][-300:]
-            self.state["trace"] = self._trace(rows, ratio, result, "live", received_at)
+            self.state["trace"] = None if onboard else self._trace(rows, ratio, result, "live", received_at)
         raw_file = None
         if accepted:
             last = accepted[-1]
@@ -300,6 +307,7 @@ class Receiver:
                 f"Packet accepted · {last['temperature_C']:.1f}°C · {last['humidity_percent']}% RH",
                 "success",
             )
+        if accepted and not onboard:
             # Save the actual energy measurements alongside the accepted payload.
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
             raw_file = "capture-" + stamp + ".npz"
@@ -347,24 +355,38 @@ class Receiver:
             pending = timing_path.with_suffix(".tmp")
             pending.write_text(json.dumps(timing), encoding="utf-8")
             pending.replace(timing_path)
-        reasons = (
-            ["packet_accepted"]
-            if accepted
-            else ["station_id_filtered"]
-            if ignored_ids
-            else ["duplicate_packet"]
-            if duplicates
-            else decode_reasons(result)
-        )
+        device_reasons = [
+            label for key, label in (
+                ("header_failures", "payload_header_failed"),
+                ("checksum_failures", "payload_checksum_failed"),
+                ("counter_failures", "paired_counter_failed"),
+            ) if result.get(key)
+        ]
+        quiet = onboard and result.get("quiet", False)
+        if quiet:
+            reasons = ["activity_gate_below_threshold"]
+        elif accepted:
+            reasons = ["packet_accepted"]
+        elif ignored_ids:
+            reasons = ["station_id_filtered"]
+        elif duplicates:
+            reasons = ["duplicate_packet"]
+        else:
+            reasons = (device_reasons if onboard else []) or decode_reasons(result)
         self._record_capture(
-            "accepted" if accepted else "decode_failed",
+            "accepted" if accepted else "quiet" if quiet else "decode_failed",
             reasons,
             rows=None if accepted else rows,
             raw_file=raw_file,
-            observations=len(rows),
+            observations=capture["count"] if onboard else len(rows),
             snapshot_samples=capture.get("snapshot_samples", 128),
             capture_failures=capture["failures"],
-            median_spacing_us=float(np.median(np.diff(rows["us"].astype(float)))),
+            median_spacing_us=None if onboard else float(np.median(np.diff(rows["us"].astype(float)))),
+            processing="esp32" if onboard else "pc",
+            decode_us=result.get("decode_us"),
+            report_bytes=capture.get("report_bytes"),
+            device_checks={k: result.get(k) for k in ("candidates", "header_failures", "checksum_failures", "counter_failures") } if onboard else None,
+            raw_transferred=not onboard,
             clock_period_us=result.get("clock_period_us"),
             clock_coherence=result.get("clock_coherence"),
             transitions=result.get("transitions"),
@@ -388,6 +410,8 @@ class Receiver:
             client = self.client_factory(port=port)
             client.command("GAIN 65")
             client.command("FREQ 2744")
+            if "weather=1" in client.info and self.state["config"]["sensor_id"]:
+                client.command("STATION " + self.state["config"]["sensor_id"])
             with self.lock:
                 self.state.update(connected=True, firmware=client.info)
             self._event(f"USB receiver connected on {port}.")
@@ -436,7 +460,9 @@ class Receiver:
                     scan_windows += 1
                     # Do not gate a predicted burst. Periodic unfiltered scans
                     # also provide a backstop if a weak signal misses the gate.
-                    if (
+                    if "weather=1" in client.info:
+                        capture = client.weather(150, monitor=not anchored and bool(scan_windows % 32))
+                    elif (
                         "monitor=1" in client.info
                         and not anchored
                         and scan_windows % 32
@@ -502,6 +528,8 @@ class Receiver:
                             client = self.client_factory(port=port)
                             client.command("GAIN 65")
                             client.command("FREQ 2744")
+                            if "weather=1" in client.info and self.state["config"]["sensor_id"]:
+                                client.command("STATION " + self.state["config"]["sensor_id"])
                             with self.lock:
                                 self.state.update(connected=True, firmware=client.info)
                             self._event("USB receiver reconnected.")

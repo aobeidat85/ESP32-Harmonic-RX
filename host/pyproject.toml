@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "esp32-harmonic-rx"
-version = "0.1.5"
+version = "0.2.0"
 description = "Experimental ESP32 two-tone receiver client and VEVOR weather decoder"
 readme = "README.md"
 requires-python = ">=3.10"

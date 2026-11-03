@@ -1,0 +1,252 @@
+{
+  "date": "2026-11-03",
+  "timezone": "America/New_York",
+  "profile": {
+    "tuning_mhz": 2744,
+    "gain": 65,
+    "snapshot_samples": 128,
+    "baud": 500000
+  },
+  "hardware": "Original ESP32-D0WD-V3; CP210x USB UART; no additional receiver hardware",
+  "replay": [
+    {
+      "fixture": "between-burst-control.npz",
+      "passed": true,
+      "expected": [],
+      "actual": [],
+      "decode_us": 649941,
+      "heap": 17916,
+      "report_bytes": 321
+    },
+    {
+      "fixture": "vevor-filter-recovery.npz",
+      "passed": true,
+      "expected": [
+        "aa0014ab1402a45601200e015b0fc9010101c9a8ca"
+      ],
+      "actual": [
+        "aa0014ab1402a45601200e015b0fc9010101c9a8ca"
+      ],
+      "decode_us": 645351,
+      "heap": 17652,
+      "report_bytes": 945
+    },
+    {
+      "fixture": "vevor-local-clock.npz",
+      "passed": true,
+      "expected": [
+        "aa0014ab1402af5501080501600fc90101016a376b"
+      ],
+      "actual": [
+        "aa0014ab1402af5501080501600fc90101016a376b"
+      ],
+      "decode_us": 613910,
+      "heap": 17652,
+      "report_bytes": 939
+    },
+    {
+      "fixture": "vevor-rejected-payload.npz",
+      "passed": true,
+      "expected": [],
+      "actual": [],
+      "decode_us": 647516,
+      "heap": 17652,
+      "report_bytes": 321
+    },
+    {
+      "fixture": "vevor-repetitions-control.npz",
+      "passed": true,
+      "expected": [],
+      "actual": [],
+      "decode_us": 614536,
+      "heap": 17652,
+      "report_bytes": 321
+    },
+    {
+      "fixture": "vevor-repetitions-holdout.npz",
+      "passed": true,
+      "expected": [
+        "aa0014ab1402a35a010a0201630fc9010101864e87"
+      ],
+      "actual": [
+        "aa0014ab1402a35a010a0201630fc9010101864e87"
+      ],
+      "decode_us": 612210,
+      "heap": 17652,
+      "report_bytes": 944
+    },
+    {
+      "fixture": "vevor-repetitions.npz",
+      "passed": true,
+      "expected": [
+        "aa0014ab1402af55010c02015b0fc9010101915a92"
+      ],
+      "actual": [
+        "aa0014ab1402af55010c02015b0fc9010101915a92"
+      ],
+      "decode_us": 655778,
+      "heap": 17652,
+      "report_bytes": 944
+    },
+    {
+      "fixture": "vevor-sync-control.npz",
+      "passed": true,
+      "expected": [],
+      "actual": [],
+      "decode_us": 570438,
+      "heap": 17652,
+      "report_bytes": 322
+    },
+    {
+      "fixture": "vevor-sync-holdout.npz",
+      "passed": true,
+      "expected": [
+        "aa0014ab1402a25a01150401520fc901010102c503"
+      ],
+      "actual": [
+        "aa0014ab1402a25a01150401520fc901010102c503"
+      ],
+      "decode_us": 595183,
+      "heap": 17652,
+      "report_bytes": 933
+    },
+    {
+      "fixture": "vevor-sync-timing.npz",
+      "passed": true,
+      "expected": [
+        "aa0014ab1402ae55011003016a0fc9010101b894b9"
+      ],
+      "actual": [
+        "aa0014ab1402ae55011003016a0fc9010101b894b9"
+      ],
+      "decode_us": 762025,
+      "heap": 17652,
+      "report_bytes": 950
+    },
+    {
+      "fixture": "vevor-yt60234-packet.npz",
+      "passed": true,
+      "expected": [
+        "aa0014ab1402ba52011808015c0fc9010101b296b3"
+      ],
+      "actual": [
+        "aa0014ab1402ba52011808015c0fc9010101b296b3"
+      ],
+      "decode_us": 656825,
+      "heap": 17652,
+      "report_bytes": 940
+    }
+  ],
+  "live": [
+    {
+      "time": "2026-11-03T13:38:29.459708+00:00",
+      "outcome": "accepted",
+      "decode_us": 626664,
+      "report_bytes": 949,
+      "observations": 4247,
+      "accepted_payloads": [
+        "aa0014ab1402af5b011f0d01300fc9022867c111c2"
+      ],
+      "device_checks": {
+        "candidates": 4,
+        "header_failures": 1,
+        "checksum_failures": 3,
+        "counter_failures": 0
+      }
+    },
+    {
+      "time": "2026-11-03T13:38:09.519400+00:00",
+      "outcome": "accepted",
+      "decode_us": 651584,
+      "report_bytes": 1566,
+      "observations": 4268,
+      "accepted_payloads": [
+        "aa0014ab1402af5b01420701310fc90234699a169b"
+      ],
+      "device_checks": {
+        "candidates": 3,
+        "header_failures": 0,
+        "checksum_failures": 1,
+        "counter_failures": 0
+      }
+    },
+    {
+      "time": "2026-11-03T13:37:49.547119+00:00",
+      "outcome": "accepted",
+      "decode_us": 655947,
+      "report_bytes": 1566,
+      "observations": 4260,
+      "accepted_payloads": [
+        "aa0014ab1402af5b01290701330fc9023ad3734874"
+      ],
+      "device_checks": {
+        "candidates": 3,
+        "header_failures": 0,
+        "checksum_failures": 0,
+        "counter_failures": 0
+      }
+    },
+    {
+      "time": "2026-11-03T13:37:29.540816+00:00",
+      "outcome": "accepted",
+      "decode_us": 654240,
+      "report_bytes": 1562,
+      "observations": 4253,
+      "accepted_payloads": [
+        "aa0014ab1402af5b011a07014a0fc90232264c744d"
+      ],
+      "device_checks": {
+        "candidates": 3,
+        "header_failures": 0,
+        "checksum_failures": 1,
+        "counter_failures": 0
+      }
+    },
+    {
+      "time": "2026-11-03T13:37:09.503170+00:00",
+      "outcome": "accepted",
+      "decode_us": 641429,
+      "report_bytes": 943,
+      "observations": 4262,
+      "accepted_payloads": [
+        "aa0014ab1402af5b01210901690fc9022835257a26"
+      ],
+      "device_checks": {
+        "candidates": 2,
+        "header_failures": 0,
+        "checksum_failures": 1,
+        "counter_failures": 1
+      }
+    },
+    {
+      "time": "2026-11-03T13:36:49.484222+00:00",
+      "outcome": "accepted",
+      "decode_us": 682434,
+      "report_bytes": 948,
+      "observations": 4266,
+      "accepted_payloads": [
+        "aa0014ab1402af5b012d0b011c0fc90222bbfe94ff"
+      ],
+      "device_checks": {
+        "candidates": 4,
+        "header_failures": 0,
+        "checksum_failures": 3,
+        "counter_failures": 1
+      }
+    }
+  ],
+  "stats": {
+    "windows": 249,
+    "accepted": 6,
+    "missed": 243,
+    "rejected": 0,
+    "crc_errors": 0
+  },
+  "limitations": [
+    "Replay is recorded RF, not live reception.",
+    "Live capture-window count includes quiet scans, not just transmissions.",
+    "Finite fixture parity does not establish equivalence on arbitrary input.",
+    "RF origin and native 915 MHz reception remain unverified.",
+    "A short weather report occurred before pacing UART writes; no guarantee of USB reliability."
+  ]
+}

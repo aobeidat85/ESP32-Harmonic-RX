@@ -1,5 +1,27 @@
 # API and USB protocol
 
+## Onboard weather decoding (0.2.0)
+
+The included sketch advertises `weather=1`. The dashboard and live CLI use this mode automatically; legacy firmware retains PC decoding. The ESP32 captures a 150 ms window, then performs clock recovery, local refinement, measured-copy combining, sync-template fitting, payload validation, and field extraction. Capture and decoding are sequential, not concurrent. The PC independently checks report integrity and field consistency; it does not reconstruct RF bits in this mode.
+
+Include `VevorDecoder.h` and instantiate `VevorDecoder<Observation>` after radio initialization. Check `ready()` before using `decode(rows, count, preferredId=-1, snapshotSamples=128)`. The result belongs to the decoder and is replaced by its next call. The decoder owns about 62 KB of scratch storage, allocated once. Scratch float bit patterns use integer-only access to the original ESP32's 32-bit IRAM heap; RF aperture reservations and linker checks remain enforced. Do not call one decoder concurrently from multiple tasks.
+
+| Command | Action |
+|---|---|
+| `STATION 14AB` | Select a hexadecimal station ID without rewriting decoded payloads |
+| `STATION ANY` | Accept any ID passing the payload checks (startup default) |
+| `WX 150` | Capture and decode on the board, without activity gating |
+| `WM 150` | Gate quiet scans before onboard decoding; predicted bursts and every 32nd acquisition scan bypass this gate |
+| `REPLAY count crc32_hex` | Test only: replies READY, accepts `count * 12` recorded bytes, verifies input CRC, and runs the same decoder; never a live observation |
+
+Normal weather replies are `WX <json_byte_count> <crc32_hex>\n`, immediately followed by exactly that many UTF-8 JSON bytes (maximum 6144). The CRC covers the JSON body. UART body writes are paced in 64-byte chunks. The JSON includes actual observation count, capture/decode timing, free heap, transition/clock measurements, aggregate header/checksum/counter failures, and `valid_packets`. Each accepted packet contains weather fields, validated 21-byte payload, sync timestamp, recovery method, and repeat count. No raw RF array is transferred. Quiet scans have `quiet=true` and an empty packet list.
+
+`client.weather(150, monitor=True)` returns `onboard=True`, `result`, `report_bytes`, and capture metadata, with no `rows`. Optional `replay_rows=` is explicitly for recorded test data. Replay tools never write those results to live weather history. Complete CRC-bad reports are discarded; short/invalid frames require reconnecting. Direct callers own recovery; the dashboard provides bounded reconnects.
+
+Receiver details show **Packet decoding**, **Last decode time**, and USB report size. Diagnostics in this mode are aggregate checks, not per-candidate raw evidence; raw downloads and the signal trace are unavailable for new onboard captures. Historical raw captures remain downloadable. The decoder retains at most eight candidate copies and eight valid packets per window. It uses a physical 0.020 us coarse clock search with 0.005 us peak refinement, not checksum-guided timing. Finite replay coverage is not proof of equivalence on every possible RF input.
+
+Run `python tests/verify_onboard.py --port COM10` with the dashboard stopped to compare the actual board against the saved RF fixtures. CI compiles `tests/native_decoder.cpp` and performs the same comparison with `--native`.
+
 ## Arduino capture API
 
 Include `Esp32HarmonicRx.h` and use the `esp32_harmonic_rx` namespace.

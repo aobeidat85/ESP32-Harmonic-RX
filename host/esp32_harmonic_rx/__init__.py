@@ -3,7 +3,7 @@
 from .client import ReceiverClient, CaptureIntegrityError, ReceiverProtocolError
 from .vevor import decode_clocked, parse_payload
 
-__version__ = "0.1.5"
+__version__ = "0.2.0"
 __all__ = [
     "ReceiverClient",
     "CaptureIntegrityError",

@@ -70,11 +70,15 @@ def main():
     client = None
     anchor = None
     missed = 0
+    scans = 0
     started = time.monotonic()
     try:
         client = ReceiverClient(port=args.port)
         client.command("GAIN 65")
         client.command("FREQ 2744")
+        onboard = "weather=1" in client.info.split()
+        if onboard and args.sensor_id:
+            client.command("STATION " + args.sensor_id)
         print(
             "Receiver connected; searching for VEVOR bursts.",
             file=sys.stderr,
@@ -97,7 +101,8 @@ def main():
                 if time.monotonic() - started >= args.seconds:
                     break
             try:
-                capture = client.capture(150)
+                scans += 1
+                capture = client.weather(150, monitor=(anchor is None or missed >= 3) and bool(scans % 32)) if onboard else client.capture(150)
             except CaptureIntegrityError as error:
                 print(str(error), file=sys.stderr, flush=True)
                 missed += 1
@@ -105,12 +110,24 @@ def main():
             if capture["failures"]:
                 missed += 1
                 continue
-            result = unpack(
-                capture["rows"],
-                "live",
-                args.sensor_id,
-                snapshot_samples=capture.get("snapshot_samples", 128),
-            )
+            if onboard:
+                result = capture["result"]
+                seen = set()
+                for packet in result["valid_packets"]:
+                    fields = dict(packet["weather"])
+                    if args.sensor_id and fields["sensor_id"] != args.sensor_id.upper():
+                        continue
+                    if fields["payload_hex"] in seen:
+                        continue
+                    seen.add(fields["payload_hex"])
+                    fields.update(source="live", processing="esp32", decode_us=result["decode_us"],
+                                  recovery_method=packet["clock_source"], repetition_count=packet["repetition_count"])
+                    print(json.dumps(fields), flush=True)
+            else:
+                result = unpack(
+                    capture["rows"], "live", args.sensor_id,
+                    snapshot_samples=capture.get("snapshot_samples", 128),
+                )
             sync = result["valid_packets"] or [
                 p for p in result.get("unvalidated_candidates", []) if p["header_valid"]
             ]

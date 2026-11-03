@@ -2,7 +2,7 @@
 
 **Experimental two-tone RF capture with an original ESP32, with a VEVOR YT60234 weather-station example.**
 
-An Arduino capture library, Python decoder, and local dashboard developed from a working bench experiment. Receiver hardware is one ESP32 development board and its USB cable; a PC performs packet decoding and displays the results.
+An Arduino capture library, Python decoder, and local dashboard developed from a working bench experiment. Receiver hardware is one ESP32 development board and its USB cable; the ESP32 decodes packets and a PC displays the weather reports. A Python RF decoder remains available for recorded captures and explicit raw diagnostics.
 
 > **RF interpretation:** VEVOR weather payloads were recovered with a requested receive setting of **2744 MHz**, near an apparent **2.745 GHz** signal. A third harmonic of the nominal 915 MHz transmitter is a plausible explanation. Absolute frequency/PLL lock and the harmonic origin have not been independently measured. **This project does not demonstrate native 915 MHz reception.**
 
@@ -12,7 +12,7 @@ An Arduino capture library, Python decoder, and local dashboard developed from a
 
 ## The idea
 
-Instead of transferring every I/Q sample over a slow USB-to-UART bridge, the ESP32 repeatedly captures a short RF snapshot and measures the energy at two configured tone offsets. It sends those two energies with actual timestamps. The PC reconstructs the FSK symbol clock, finds the VEVOR packet, validates it, and extracts the weather fields.
+Instead of transferring every I/Q sample over a slow USB-to-UART bridge, the ESP32 repeatedly captures a short RF snapshot and measures the energy at two configured tone offsets. The ESP32 reconstructs the FSK symbol clock, finds the VEVOR packet, validates it, and extracts the weather fields. Normal reception sends only CRC-framed weather reports and compact diagnostic summaries over USB. The dashboard does not run RF decoding in this mode.
 
 The ESP32 captures ** 128 nominal 16 MS/s samples per observation** and gathers observations over a **150 ms window**. Reception has gaps; this is not continuous SDR streaming. The measured observation spacing in the original experiment was typically 35–36 µs.
 
@@ -20,13 +20,14 @@ The ESP32 captures ** 128 nominal 16 MS/s samples per observation** and gathers 
 flowchart LR
   A[VEVOR outdoor sensor<br/>Nominal 915 MHz] -. Possible harmonic path<br/>not RF-verified .-> B[Original ESP32<br/>Requested 2744 MHz]
   B --> C[128-sample snapshots<br/>Two tone-energy measurements]
-  C --> D[USB serial<br/>Timestamped observations + CRC]
-  D --> E[Python symbol-clock recovery]
-  E --> F[Header, checksum<br/>and counter checks]
+  C --> D[ESP32 packet decoding<br/>Clock, sync, repetition recovery]
+  D --> F[USB serial<br/>Weather reports + CRC]
   F --> G[Weather readings<br/>Dashboard / JSON / CSV]
 ```
 
-The Arduino library performs capture and tone measurement. **VEVOR packet decoding runs on the PC**, not on the ESP32. No router credentials or Internet connection are needed for reception.
+The Arduino library performs capture and tone measurement. **VEVOR packet decoding now runs on the ESP32** in the included example. The PC still validates received reports and displays the fields. No router credentials or Internet connection are needed for reception.
+
+The [onboard Receiver panel](docs/images/dashboard-onboard-decoder.png) shows decoding time and USB report size. On the tested board, all 11 saved RF fixtures matched the reference, with 0.57-0.76 second decoder runtimes. A short live check then received six consecutive bursts about 20 seconds apart. See [the validation record](docs/VALIDATION.md); this is not a long-term reliability or range measurement. Capture and decoding remain sequential.
 
 ## Example station
 
@@ -87,7 +88,7 @@ python -m venv .venv
 
 Open **http://127.0.0.1:8765** and select **Start receiving**. Begin close to the outdoor sensor, as in the experiment. Initial acquisition can take several bursts. The dashboard retains measured burst timing for up to five minutes across restarts, then falls back to scanning. It learns small period changes from verified packets, excluding repeated copies and other sensor IDs. Keep any experimental GPIO transmitter unplugged while receiving weather data.
 
-The UI starts with recorded example readings labeled **Saved**. Newly received packets are labeled **Live**. The Start/Stop controls acquire and release the serial port. Current firmware starts at 1,000,000 baud and the host negotiates a 500,000-baud transfer rate to reduce observed USB corruption; older firmware remains at its original rate. With current firmware, acquisition uses a physical FSK activity gate to avoid transferring empty captures. Predicted bursts and every 32nd scan bypass the gate so weak candidates can still reach the decoder. Capture-window counts include quiet periods and are not counts of transmitted packets. Open **Receiver → Capture diagnostics** to inspect the latest failures, individual decoder checks, raw evidence, and the full journal. Failed transferred captures are saved, with the latest 1,000 raw failures retained; quiet monitor windows have metadata only. Older unlogged failures cannot be reconstructed. A complete USB frame with a bad CRC is discarded and reception continues; a short read or malformed protocol frame causes the dashboard to close, reset, and reconnect the receiver, with bounded retries.
+The UI starts with recorded example readings labeled **Saved**. Newly received packets are labeled **Live**. The Start/Stop controls acquire and release the serial port. Current firmware starts at 1,000,000 baud and the host negotiates a 500,000-baud transfer rate to reduce observed USB corruption; older firmware remains at its original rate. With current firmware, acquisition uses a physical FSK activity gate to avoid transferring empty captures. Predicted bursts and every 32nd scan bypass the gate so weak candidates can still reach the decoder. Capture-window counts include quiet periods and are not counts of transmitted packets. Open **Receiver → Capture diagnostics** to inspect the latest failures, decoder-check summaries, available legacy raw evidence, and the full journal. Onboard mode retains diagnostic summaries, not RF arrays. Explicit legacy raw transfers retain the latest 1,000 raw failures. Quiet monitor windows have metadata only. Older unlogged failures cannot be reconstructed. A complete USB frame with a bad CRC is discarded and reception continues; a short read or malformed protocol frame causes the dashboard to close, reset, and reconnect the receiver, with bounded retries.
 
 For Linux/macOS, activate `.venv`, use `python -m pip install -e ./host platformio==6.2.0`, and substitute a port such as `/dev/ttyUSB0`:
 
@@ -96,7 +97,7 @@ pio run -d examples/VEVORWeatherStation -t upload --upload-port /dev/ttyUSB0
 python dashboard/app.py --serial-port /dev/ttyUSB0
 ```
 
-When exactly one USB serial port is present, the dashboard can select it automatically. Otherwise provide `--serial-port`. An optional `--sensor-id 14AB` filter can restrict reception to one station. The default accepts any checksum-valid VEVOR ID.
+When exactly one USB serial port is present, the dashboard can select it automatically. Otherwise provide `--serial-port`. An optional `--sensor-id 14AB` filter can restrict reception to one station. The default accepts any ID passing the header, checksum, and paired-counter checks.
 
 ### Try the decoder without hardware
 
@@ -141,15 +142,15 @@ void loop() {
 }
 ```
 
-The complete [VEVORWeatherStation sketch](examples/VEVORWeatherStation/VEVORWeatherStation.ino) implements the USB bridge expected by the Python client. See [API and protocol](docs/API.md) for parameters, framing, and failure handling.
+The complete [VEVORWeatherStation sketch](examples/VEVORWeatherStation/VEVORWeatherStation.ino) implements onboard decoding and the weather-report protocol expected by the Python client. CAP/MON raw commands remain available for explicit debugging. See [API and protocol](docs/API.md) for parameters, framing, and failure handling.
 
 The repository has Arduino/PlatformIO library metadata. It has **not** been submitted to Arduino Library Manager, PlatformIO Registry, or PyPI. Clone/install from GitHub or use the repository's pinned example.
 
 ## Project layout
 
 ```text
-src/                         Arduino capture library
-examples/VEVORWeatherStation/ Pinned ESP32 USB-bridge example
+src/                         Arduino capture library and onboard VEVOR decoder
+examples/VEVORWeatherStation/ Pinned ESP32 weather-decoding example
 host/esp32_harmonic_rx/       Python transport, clock recovery, and weather parser
 dashboard/                   Local web UI using the host library
 tests/fixtures/              Recorded RF packet and between-burst control
