@@ -8,9 +8,17 @@ import numpy as np
 class CaptureIntegrityError(RuntimeError):
     """A complete serial frame was read, but its CRC failed. The frame is discarded."""
 
+    def __init__(self, message, *, raw=None, details=None):
+        super().__init__(message)
+        self.raw, self.details = raw, details or {}
+
 
 class ReceiverProtocolError(RuntimeError):
     """The serial boundary is uncertain; reset/reconnect before another command."""
+
+    def __init__(self, message, *, raw=None, details=None):
+        super().__init__(message)
+        self.raw, self.details = raw, details or {}
 
 
 class ReceiverClient:
@@ -65,6 +73,9 @@ class ReceiverClient:
                     raise ReceiverProtocolError(
                         "Receiver did not confirm the transfer rate"
                     )
+            self.snapshot_samples = next(
+                (int(t[2:]) for t in self.info.split() if t.startswith("N=")), 128
+            )
         except BaseException:
             self.s.close()
             raise
@@ -114,7 +125,10 @@ class ReceiverClient:
                 host_end=time.perf_counter(),
             )
         if len(fields) not in (6, 7) or fields[0] != "FSK":
-            raise ReceiverProtocolError("Invalid capture header; USB framing lost")
+            raise ReceiverProtocolError(
+                "Invalid capture header; USB framing lost",
+                details={"header": line[:512]},
+            )
         try:
             count = int(fields[1])
             expected_crc = int(fields[2], 16)
@@ -134,14 +148,30 @@ class ReceiverClient:
         size = count * 12
         raw = self.s.read(size)
         if len(raw) != size:
-            raise ReceiverProtocolError("Short capture; reconnect required")
+            raise ReceiverProtocolError(
+                "Short capture; reconnect required",
+                raw=raw,
+                details={"expected_bytes": size, "received_bytes": len(raw)},
+            )
         if zlib.crc32(raw) & 0xFFFFFFFF != expected_crc:
             try:
                 self.resynchronize()
             except RuntimeError as error:
-                raise ReceiverProtocolError("USB framing recovery failed") from error
+                raise ReceiverProtocolError(
+                    "USB framing recovery failed",
+                    raw=raw,
+                    details={
+                        "expected_crc": expected_crc,
+                        "received_crc": zlib.crc32(raw) & 0xFFFFFFFF,
+                    },
+                ) from error
             raise CaptureIntegrityError(
-                "Capture CRC mismatch; complete frame discarded"
+                "Capture CRC mismatch; complete frame discarded",
+                raw=raw,
+                details={
+                    "expected_crc": expected_crc,
+                    "received_crc": zlib.crc32(raw) & 0xFFFFFFFF,
+                },
             )
         rows = np.frombuffer(
             raw, dtype=[("us", "<u4"), ("p0", "<f4"), ("p1", "<f4")]
@@ -161,6 +191,7 @@ class ReceiverClient:
             host_start=start,
             host_end=time.perf_counter(),
             estimated_window_host_start=window_start,
+            snapshot_samples=getattr(self, "snapshot_samples", 128),
         )
 
     def close(self):

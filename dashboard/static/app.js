@@ -208,8 +208,29 @@ function render(value) {
   $('navCount').textContent = number(value.readings.length,0);
   $('activityList').innerHTML = value.events.slice(0,2).map(eventHtml).join('');
   $('receiverEvents').innerHTML = value.events.slice(0,15).map(eventHtml).join('') || '<div class="empty-state">No connection events yet.</div>';
-  renderHistory(value.readings); renderPackets(value.readings); renderTrace(value.trace); updateCountdown();
+  renderHistory(value.readings); renderPackets(value.readings); renderTrace(value.trace); renderDiagnostics(value); updateCountdown();
 }
+
+let diagnosticKey = '';
+function renderDiagnostics(value) {
+  const mode = $('diagnosticFilter').value;
+  const records = mode === 'failed' ? (value.recent_failures || []) : (value.diagnostics || []);
+  const key = mode + records.map(d => d.id).join('|');
+  const timing = value.timing || {};
+  $('burstInterval').textContent = number(timing.period_seconds ?? 20, 3) + ' s (estimated)';
+  $('timingSummary').textContent = `Estimated interval ${number(timing.period_seconds ?? 20,3)} s · ${timing.rate_samples || 0} trusted rate samples · Last phase residual ${number(timing.last_phase_error_ms,2)} ms. Repeated copies do not count as new bursts.`;
+  if (key === diagnosticKey) return;
+  diagnosticKey = key;
+  const opened = new Set([...document.querySelectorAll('#captureDiagnostics details[open]')].map(el => el.dataset.id));
+  const labels = {packet_accepted:'Packet accepted', activity_gate_below_threshold:'Activity gate did not detect a burst', insufficient_fsk_transitions:'Too few strong FSK transitions', sync_pattern_mismatch:'Sync pattern did not match', no_complete_payload_candidate:'Sync found, but no complete payload candidate', payload_header_failed:'Header failure among candidates', payload_checksum_failed:'Checksum failure among candidates', paired_counter_failed:'Counter failure among candidates', station_id_filtered:'Different sensor ID', duplicate_packet:'Packet already received', usb_io_failed:'USB read/write failed', usb_crc_failed:'USB CRC failed', usb_boundary_lost:'USB framing lost', invalid_measurements:'Invalid capture measurements', no_accepted_packet:'No payload passed all checks'};
+  $('captureDiagnostics').innerHTML = records.map(d => {
+    const details = {sequence:d.sequence, session:d.session, decoder_version:d.decoder_version, profile:d.profile, ignored_sensor_ids:d.ignored_sensor_ids, accepted_payloads:d.accepted_payloads, observations:d.observations, preamble_errors:d.preamble_errors, clock_period_us:d.clock_period_us, clock_coherence:d.clock_coherence, transitions:d.transitions, candidate_checks:d.candidate_checks, transport:d.transport, error:d.error, timing:d.timing, gate_edges:d.gate_edges, gate_coherence:d.gate_coherence, snapshot_samples:d.snapshot_samples};
+    const evidence = d.raw_file ? `<a href="/api/diagnostics/raw/${encodeURIComponent(d.raw_file)}">Raw capture</a>` : 'No raw transfer';
+    return `<tr><td>${escapeHtml(timeLabel(d.time))}</td><td>${escapeHtml(d.outcome.replaceAll('_',' '))}</td><td>${(d.reasons || []).map(r => escapeHtml(labels[r] || r)).join('; ')}<details data-id="${escapeHtml(d.id)}" ${opened.has(d.id) ? 'open' : ''}><summary>Check details</summary><pre class="diagnostic-details">${escapeHtml(JSON.stringify(details,null,2))}</pre></details></td><td>${evidence}</td></tr>`;
+  }).join('') || '<tr><td colspan="4">No matching diagnostics yet. Logging begins with new captures.</td></tr>';
+}
+$('diagnosticFilter').addEventListener('change', () => { diagnosticKey = ''; if (state) renderDiagnostics(state); });
+
 async function poll() {
   try {
     const response = await fetch('/api/status', {cache:'no-store'});

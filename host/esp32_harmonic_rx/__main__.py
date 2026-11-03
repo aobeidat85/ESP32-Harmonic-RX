@@ -10,8 +10,14 @@ import numpy as np
 from . import ReceiverClient, CaptureIntegrityError, decode_clocked, parse_payload
 
 
-def unpack(rows, source, sensor_id=None):
-    result, _ = decode_clocked(rows["us"].astype(float), rows["p0"], rows["p1"])
+def unpack(rows, source, sensor_id=None, snapshot_samples=128):
+    result, _ = decode_clocked(
+        rows["us"].astype(float),
+        rows["p0"],
+        rows["p1"],
+        snapshot_samples=snapshot_samples,
+        preferred_sensor_id=sensor_id,
+    )
     seen = set()
     for packet in result["valid_packets"]:
         if packet["payload_hex"] in seen:
@@ -52,7 +58,10 @@ def main():
     if args.replay:
         with np.load(args.replay, allow_pickle=False) as saved:
             rows = saved["rows"].copy()
-        unpack(rows, "recorded", args.sensor_id)
+            samples = (
+                int(saved["snapshot_samples"]) if "snapshot_samples" in saved else 128
+            )
+        unpack(rows, "recorded", args.sensor_id, snapshot_samples=samples)
         return
     if not args.port:
         parser.error("--port is required for live reception")
@@ -96,7 +105,12 @@ def main():
             if capture["failures"]:
                 missed += 1
                 continue
-            result = unpack(capture["rows"], "live", args.sensor_id)
+            result = unpack(
+                capture["rows"],
+                "live",
+                args.sensor_id,
+                snapshot_samples=capture.get("snapshot_samples", 128),
+            )
             sync = result["valid_packets"] or [
                 p for p in result.get("unvalidated_candidates", []) if p["header_valid"]
             ]

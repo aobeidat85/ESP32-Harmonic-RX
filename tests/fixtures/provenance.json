@@ -69,5 +69,26 @@
     "humidity_percent": 90,
     "method": "sync",
     "previous_decoder_accepted": false
+  },
+  "rejected_payload_diagnostics": {
+    "file": "vevor-rejected-payload.npz",
+    "kind": "Real capture with decoded sync/header but rejected payload",
+    "date": "2026-11-02",
+    "expected_accepted_packets": 0,
+    "observed_stages": [
+      "whole",
+      "local",
+      "sync"
+    ],
+    "checks": "All reported candidates fail payload checksum; counter checks differ by stage."
+  },
+  "preferred_station_recovery": {
+    "file": "vevor-filter-recovery.npz",
+    "date": "2026-11-03",
+    "kind": "Raw live failure retained by the new diagnostic journal",
+    "initial_decoded_id": "04AB",
+    "preferred_station_id": "14AB",
+    "expected_recovered_payload_hex": "aa0014ab1402a45601200e015b0fc9010101c9a8ca",
+    "method": "Measured repetition combining; initial mismatching candidate remains retained without relabeling."
   }
 }

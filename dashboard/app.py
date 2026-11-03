@@ -7,6 +7,7 @@ import json
 import logging
 import math
 import mimetypes
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -17,9 +18,11 @@ from urllib.parse import urlparse
 import numpy as np
 
 from receiver.client import FSKClient, CaptureIntegrityError, ReceiverProtocolError
-from esp32_harmonic_rx import parse_payload
+from esp32_harmonic_rx import parse_payload, __version__ as DECODER_VERSION
 from serial.tools import list_ports
 from receiver.decoder import decode_clocked
+from capture_log import CaptureLog, decode_reasons
+from timing import BurstTiming
 
 ROOT = Path(__file__).resolve().parent
 FIXTURES = ROOT.parent / "tests" / "fixtures"
@@ -59,6 +62,8 @@ class Receiver:
         self.stop_event = threading.Event()
         self.worker = None
         self.anchor = None
+        self.burst_timing = BurstTiming()
+        self.capture_log = CaptureLog(self.data_dir)
         self.last_seen_payload = {}
         self.state = {
             "running": False,
@@ -84,6 +89,9 @@ class Receiver:
             "events": [],
             "trace": None,
             "firmware": None,
+            "diagnostics": list(reversed(self.capture_log.recent)),
+            "recent_failures": list(reversed(self.capture_log.failures)),
+            "timing": self.burst_timing.snapshot(),
         }
         if seed:
             self._load_saved()
@@ -95,6 +103,11 @@ class Receiver:
             age = time.time() - float(timing["burst_unix"])
             if 0 <= age < 300 and timing.get("port") == serial_port:
                 self.anchor = time.perf_counter() - age
+                period = float(timing.get("period_seconds", 20.0))
+                if math.isfinite(period) and 19.9 <= period <= 20.1:
+                    self.burst_timing.period = period
+                self.burst_timing.anchor = self.anchor
+                self.state["timing"] = self.burst_timing.snapshot()
         except (OSError, ValueError, TypeError, KeyError):
             pass
 
@@ -104,6 +117,16 @@ class Receiver:
                 0, {"time": utc(), "message": message, "kind": kind}
             )
             del self.state["events"][80:]
+
+    def _record_capture(self, outcome, reasons, **details):
+        details.setdefault("profile", dict(self.state["config"]))
+        details.setdefault("timing", self.burst_timing.snapshot())
+        details.setdefault("decoder_version", DECODER_VERSION)
+        record = self.capture_log.write(outcome, reasons, **details)
+        with self.lock:
+            self.state["diagnostics"] = list(reversed(self.capture_log.recent))
+            self.state["recent_failures"] = list(reversed(self.capture_log.failures))
+        return record
 
     def _load_saved(self):
         demo = FIXTURES / "saved-readings.json"
@@ -198,6 +221,18 @@ class Receiver:
         }
 
     def process_capture(self, capture):
+        try:
+            return self._process_capture(capture)
+        except ValueError as error:
+            self._record_capture(
+                "capture_invalid",
+                ["invalid_measurements"],
+                rows=capture.get("rows"),
+                error=str(error),
+            )
+            raise
+
+    def _process_capture(self, capture):
         with self.lock:
             self.state["stats"]["windows"] += 1
         rows = capture["rows"]
@@ -212,21 +247,31 @@ class Receiver:
                 "The receiver measurements are constant. Reconnect the receiver."
             )
         result, ratio = decode_clocked(
-            rows["us"].astype(float), rows["p0"].astype(float), rows["p1"].astype(float)
+            rows["us"].astype(float),
+            rows["p0"].astype(float),
+            rows["p1"].astype(float),
+            snapshot_samples=capture.get("snapshot_samples", 128),
+            preferred_sensor_id=self.state["config"]["sensor_id"],
         )
         received_at = utc()
         accepted = []
+        ignored_ids = []
+        duplicates = 0
         for packet in result["valid_packets"]:
             fields = weather_fields(packet)
             if (
                 self.state["config"]["sensor_id"]
                 and fields["sensor_id"] != self.state["config"]["sensor_id"]
             ):
-                self._event("A packet from another sensor was ignored.", "warning")
+                self._event(
+                    "Decoded sensor ID did not match the selected station.", "warning"
+                )
+                ignored_ids.append(fields["sensor_id"])
                 continue
             key = packet["payload_hex"]
             now = time.monotonic()
             if now - self.last_seen_payload.get(key, -100) < 2:
+                duplicates += 1
                 continue
             self.last_seen_payload[key] = now
             fields.update(
@@ -248,6 +293,7 @@ class Receiver:
             self.state["readings"].extend(accepted)
             self.state["readings"] = self.state["readings"][-300:]
             self.state["trace"] = self._trace(rows, ratio, result, "live", received_at)
+        raw_file = None
         if accepted:
             last = accepted[-1]
             self._event(
@@ -256,25 +302,79 @@ class Receiver:
             )
             # Save the actual energy measurements alongside the accepted payload.
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+            raw_file = "capture-" + stamp + ".npz"
             np.savez_compressed(
-                self.data_dir / ("capture-" + stamp + ".npz"), rows=rows
+                self.data_dir / raw_file,
+                rows=rows,
+                snapshot_samples=np.uint16(capture.get("snapshot_samples", 128)),
             )
         sync = result["valid_packets"] or [
             x for x in result.get("unvalidated_candidates", []) if x.get("header_valid")
         ]
+        station = self.state["config"]["sensor_id"]
+        sync = [
+            p for p in sync if not station or p["payload_hex"][4:8].upper() == station
+        ]
+        sync = [
+            p
+            for p in sync
+            if (p.get("checksum_valid") and p.get("counter_valid"))
+            or result.get("clock_coherence", 0) >= 0.3
+        ]
+        sync.sort(key=lambda p: p["preamble_time_us"])
         if sync:
-            self.anchor = (
+            packet = sync[0]
+            observed = (
                 capture["estimated_window_host_start"]
-                + sync[0]["preamble_time_us"] / 1e6
+                + packet["preamble_time_us"] / 1e6
             )
+            trusted = bool(packet.get("checksum_valid") and packet.get("counter_valid"))
+            repeat = (
+                379
+                * packet.get("clock_period_us", result.get("clock_period_us", 88.5))
+                / 1e6
+            )
+            self.burst_timing.observe(observed, repeat, trusted)
+            self.anchor = self.burst_timing.anchor
+            with self.lock:
+                self.state["timing"] = self.burst_timing.snapshot()
             timing = {
                 "port": self.state["config"]["port"],
                 "burst_unix": time.time() + self.anchor - time.perf_counter(),
+                "period_seconds": self.burst_timing.period,
             }
             timing_path = self.data_dir / "burst-timing.json"
             pending = timing_path.with_suffix(".tmp")
             pending.write_text(json.dumps(timing), encoding="utf-8")
             pending.replace(timing_path)
+        reasons = (
+            ["packet_accepted"]
+            if accepted
+            else ["station_id_filtered"]
+            if ignored_ids
+            else ["duplicate_packet"]
+            if duplicates
+            else decode_reasons(result)
+        )
+        self._record_capture(
+            "accepted" if accepted else "decode_failed",
+            reasons,
+            rows=None if accepted else rows,
+            raw_file=raw_file,
+            observations=len(rows),
+            snapshot_samples=capture.get("snapshot_samples", 128),
+            capture_failures=capture["failures"],
+            median_spacing_us=float(np.median(np.diff(rows["us"].astype(float)))),
+            clock_period_us=result.get("clock_period_us"),
+            clock_coherence=result.get("clock_coherence"),
+            transitions=result.get("transitions"),
+            preamble_errors=result.get("nearest_preamble_bit_errors"),
+            candidate_checks=result.get(
+                "candidate_checks", result.get("unvalidated_candidates", [])
+            ),
+            accepted_payloads=[p["payload_hex"] for p in accepted],
+            ignored_sensor_ids=ignored_ids,
+        )
         return bool(accepted), bool(sync)
 
     def _run(self):
@@ -302,8 +402,11 @@ class Receiver:
                     and missed < 3
                 )
                 if anchored:
-                    cycle = max(1, math.ceil((now + 0.15 + 0.065 - self.anchor) / 20))
-                    target = self.anchor + cycle * 20 - 0.065
+                    period = self.burst_timing.period
+                    cycle = max(
+                        1, math.ceil((now + 0.15 + 0.065 - self.anchor) / period)
+                    )
+                    target = self.anchor + cycle * period - 0.065
                     with self.lock:
                         self.state.update(
                             phase="waiting",
@@ -342,6 +445,13 @@ class Receiver:
                     else:
                         capture = client.capture(150)
                 except CaptureIntegrityError as error:
+                    self._record_capture(
+                        "usb_crc",
+                        ["usb_crc_failed"],
+                        raw=getattr(error, "raw", None),
+                        error=str(error),
+                        transport=getattr(error, "details", {}),
+                    )
                     with self.lock:
                         self.state["stats"]["windows"] += 1
                         self.state["stats"]["crc_errors"] += 1
@@ -350,6 +460,21 @@ class Receiver:
                     missed += 1
                     continue
                 except (ReceiverProtocolError, OSError) as error:
+                    framing = isinstance(error, ReceiverProtocolError)
+                    self._record_capture(
+                        "usb_framing" if framing else "usb_io",
+                        ["usb_boundary_lost" if framing else "usb_io_failed"],
+                        raw=getattr(error, "raw", None),
+                        error=str(error),
+                        transport=getattr(
+                            error,
+                            "details",
+                            {
+                                "errno": getattr(error, "errno", None),
+                                "winerror": getattr(error, "winerror", None),
+                            },
+                        ),
+                    )
                     # No further commands on an unknown binary boundary. Close and
                     # hardware-reset the board before establishing a new INFO boundary.
                     client.close()
@@ -362,7 +487,8 @@ class Receiver:
                         )
                         self.state["stats"]["rejected"] += 1
                     self._event(
-                        "USB framing lost. Resetting and reconnecting the receiver.",
+                        ("USB framing lost." if framing else "USB read/write failed.")
+                        + " Resetting and reconnecting the receiver.",
                         "warning",
                     )
                     if recoveries >= 3:
@@ -392,6 +518,15 @@ class Receiver:
                     continue
                 recoveries = 0
                 if capture.get("idle"):
+                    self._record_capture(
+                        "quiet",
+                        ["activity_gate_below_threshold"],
+                        observations=capture["count"],
+                        gate_edges=capture.get("gate_edges"),
+                        gate_coherence=capture.get("gate_coherence"),
+                        capture_failures=capture["failures"],
+                        raw_transferred=False,
+                    )
                     with self.lock:
                         self.state["stats"]["windows"] += 1
                         self.state["stats"]["missed"] += 1
@@ -464,6 +599,37 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/api/status":
             self.send_json(200, self.receiver.snapshot())
+        elif path == "/api/diagnostics/export.jsonl":
+            self.send_bytes(
+                200,
+                self.receiver.capture_log.export_bytes(),
+                "application/x-ndjson",
+                {
+                    "Content-Disposition": 'attachment; filename="capture-diagnostics.jsonl"'
+                },
+            )
+        elif path.startswith("/api/diagnostics/raw/"):
+            name = path.rsplit("/", 1)[-1]
+            if not re.fullmatch(
+                r"(?:failure|usb|capture)-[A-Za-z0-9-]+\.(?:npz|bin)", name
+            ):
+                self.send_json(400, {"error": "Invalid capture name"})
+                return
+            directory = (
+                self.receiver.data_dir
+                if name.startswith("capture-")
+                else self.receiver.capture_log.directory
+            ).resolve()
+            target = (directory / name).resolve()
+            if target.parent != directory or not target.is_file():
+                self.send_json(404, {"error": "Raw capture not retained"})
+                return
+            self.send_bytes(
+                200,
+                target.read_bytes(),
+                "application/octet-stream",
+                {"Content-Disposition": 'attachment; filename="' + name + '"'},
+            )
         elif path == "/api/export.csv":
             records = self.receiver.snapshot()["readings"]
             out = io.StringIO(newline="")

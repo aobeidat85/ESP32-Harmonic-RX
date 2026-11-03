@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.5 — Capture diagnostics and adaptive burst timing
+
+- Persist every capture outcome and candidate-level validation checks in a diagnostic journal.
+- Retain raw failed transfers and expose failure history, raw downloads, and journal export in Receiver details.
+- Track measured burst-period drift, excluding same-burst repeats and other station IDs; preserve estimates across short restarts.
+- Continue recovery for the preferred station when a mismatching-ID candidate passes the weak additive checksum.
+- Add a compile-time 192-sample experiment option, while keeping the measured 128-sample default.
+- Add diagnostic persistence, raw-retention, timing-drift, station-filter, and download-path checks.
+
 ## 0.1.4 — Sync-template phase recovery
 
 - Add a fallback that refines phase against the known sync waveform before decoding payload bits.

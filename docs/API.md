@@ -82,3 +82,15 @@ A recovered packet can include `clock_source=repetition` and `repetition_count`.
 ## Sync-template recovery metadata (0.1.4)
 
 Packet `clock_source` / weather `recovery_method` may also be `sync` or `sync_repetition`. A single-copy sync recovery includes its normalized `sync_correlation`. The fallback holds the measured symbol period fixed and fits phase to the known sync waveform; it never selects phase using payload validity. Firmware/protocol are unchanged from 0.1.3, including the negotiated slower transfer rate.
+
+## Persistent diagnostics and burst timing (0.1.5)
+
+The dashboard journals all new attempts to `dashboard/data/diagnostics/captures.jsonl`. `/api/status` includes the latest 50 outcomes, latest 20 failures, and an estimated `timing` object. Receiver details show the records. `/api/diagnostics/export.jsonl` downloads the full journal; `/api/diagnostics/raw/<file>` serves only validated capture filenames inside the designated data directories.
+
+Each record includes an outcome/reason list, profile, measured clock/sync information, available candidate checks labeled by decoder stage, and any USB error details. Header/checksum/counter failures can coexist across candidates; they are observed validation failures, not a diagnosis of weak RF. Failed transferred arrays are stored as NPZ, CRC-bad/short USB bodies as BIN when available. Only the latest 1,000 raw failures are retained; the journal persists. Quiet MON replies contain no transferred raw samples and are explicitly metadata-only. Successful arrays retain the existing capture files. Logging cannot recover past unsaved attempts.
+
+The dashboard estimates the burst period from verified matching-station arrivals. It ignores same-burst copies and excludes intervals with large copy-hop residuals from rate learning. Repeated-copy phase changes are normalized when adjusting the capture phase. Header-only detections may bootstrap initial phase but do not steer an established clock. Only estimates within 19.9–20.1 seconds are accepted, and the learned period is saved with the existing five-minute timing cache.
+
+`decode_clocked(..., snapshot_samples=128)` remains the default. Experimental 192-sample firmware can be built by adding `-DESP32_HARMONIC_RX_SNAPSHOT_SAMPLES=192`; pass its actual snapshot length to the host decoder. The current client includes the INFO-reported length in each capture. This adjusts the sync-template integration model, not the payload checks. The dashboard default remains 128 samples.
+
+`decode_clocked(..., preferred_sensor_id="14AB")` prevents a valid-checksum candidate with a different decoded ID from stopping further recovery. IDs and payload bits are never relabeled. The returned valid-candidate list may still include other IDs for inspection; applications must apply their station filter. The dashboard and CLI do both. A matching-station raw regression now recovers through measured repetition combining after an earlier mismatching-ID candidate.

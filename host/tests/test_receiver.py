@@ -15,6 +15,29 @@ FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
 
 
 class ReceiverTests(unittest.TestCase):
+    def test_mismatched_valid_id_does_not_block_selected_station_recovery(self):
+        with np.load(
+            FIXTURES / "vevor-filter-recovery.npz", allow_pickle=False
+        ) as saved:
+            rows = saved["rows"]
+        args = (rows["us"], rows["p0"], rows["p1"])
+        unfiltered, _ = decode_clocked(*args)
+        self.assertFalse(
+            any(p["payload_hex"][4:8] == "14ab" for p in unfiltered["valid_packets"])
+        )
+        selected, _ = decode_clocked(*args, preferred_sensor_id="14AB")
+        recovered = [
+            p for p in selected["valid_packets"] if p["payload_hex"][4:8] == "14ab"
+        ]
+        self.assertEqual(
+            recovered[0]["payload_hex"], "aa0014ab1402a45601200e015b0fc9010101c9a8ca"
+        )
+        self.assertEqual(recovered[0]["clock_source"], "repetition")
+        # The original mismatching candidate is retained, never relabeled.
+        self.assertTrue(
+            any(p["payload_hex"][4:8] == "04ab" for p in selected["valid_packets"])
+        )
+
     def test_sync_template_fresh_holdout_and_quiet_control(self):
         from unittest.mock import patch
 
@@ -246,8 +269,10 @@ class ReceiverTests(unittest.TestCase):
 
         client = ReceiverClient.__new__(ReceiverClient)
         client.s = SerialFrame()
-        with self.assertRaises(CaptureIntegrityError):
+        with self.assertRaises(CaptureIntegrityError) as corrupted:
             client.capture(10)
+        self.assertEqual(corrupted.exception.raw, payload)
+        self.assertIn("expected_crc", corrupted.exception.details)
         client.s = SerialFrame(short=True)
         with self.assertRaises(RuntimeError) as error:
             client.capture(10)

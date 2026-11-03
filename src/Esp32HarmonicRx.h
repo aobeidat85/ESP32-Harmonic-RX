@@ -3,6 +3,10 @@
 
 #include <Arduino.h>
 
+#ifndef ESP32_HARMONIC_RX_SNAPSHOT_SAMPLES
+#define ESP32_HARMONIC_RX_SNAPSHOT_SAMPLES 128
+#endif
+
 #if !defined(CONFIG_IDF_TARGET_ESP32)
 #error "ESP32-Harmonic-RX currently supports the original dual-core ESP32 only."
 #endif
@@ -43,7 +47,9 @@ class Receiver {
   ~Receiver() { end(); }
   Receiver(const Receiver &) = delete;
   Receiver &operator=(const Receiver &) = delete;
-  static constexpr size_t SamplesPerObservation = 128;
+  static constexpr size_t SamplesPerObservation = ESP32_HARMONIC_RX_SNAPSHOT_SAMPLES;
+  static_assert(SamplesPerObservation == 128 || SamplesPerObservation == 192,
+                "Experimental lengths: 128 or 192");
   static constexpr size_t MaxObservations = 6144;
   static constexpr uint16_t MaxWindowMs = 150;
   static constexpr uint32_t NominalSampleRate = 16000000;

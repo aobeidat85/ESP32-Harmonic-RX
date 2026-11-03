@@ -9,15 +9,27 @@ PREAMBLE = np.unpackbits(np.frombuffer(bytes.fromhex("aaaacaca54"), np.uint8))
 PATTERN = 2 * PREAMBLE.astype(float) - 1
 
 
-def decode_clocked(t, p0, p1):
+def decode_clocked(t, p0, p1, snapshot_samples=128, preferred_sensor_id=None):
     """Recover the window clock, then refine it locally around detected syncs.
 
     Each refinement uses one fixed 40 ms interval selected by the sync time,
     before consulting payload checks. It never searches timing for a checksum.
     """
+    if snapshot_samples not in (128, 192):
+        raise ValueError("Snapshot length must be 128 or 192")
+    sensor_id = preferred_sensor_id
+    if sensor_id is not None:
+        sensor_id = sensor_id.upper()
+        if len(sensor_id) != 4 or any(c not in "0123456789ABCDEF" for c in sensor_id):
+            raise ValueError("Sensor ID must contain four hexadecimal digits")
+
+    def matches_sensor(packet):
+        return sensor_id is None or packet["payload_hex"][4:8].upper() == sensor_id
+
     result, ratio = _decode_window(t, p0, p1)
     t, p0, p1 = (np.asarray(x, dtype=float) for x in (t, p0, p1))
     accepted = list(result["valid_packets"])
+    checks = [dict(p, stage="whole") for p in result.get("unvalidated_candidates", [])]
     refinements = []
     copies = []
     for candidate in result.get("unvalidated_candidates", []):
@@ -28,11 +40,15 @@ def decode_clocked(t, p0, p1):
         if selected.sum() < 128:
             continue
         local, local_ratio = _decode_window(t[selected], p0[selected], p1[selected])
+        checks.extend(
+            dict(p, stage="local") for p in local.get("unvalidated_candidates", [])
+        )
         coherence = local.get("clock_coherence", 0)
         # Select timing by physical transition coherence, not packet validity.
         if coherence < max(0.3, result.get("clock_coherence", 0)):
             copy = _soft_copy(copy_t, copy_ratio, clock, copy_candidate)
             if copy is not None:
+                copy["half_snapshot_us"] = snapshot_samples / 32
                 copies.append(copy)
             continue
         nearby = [
@@ -47,6 +63,7 @@ def decode_clocked(t, p0, p1):
             copy_t, copy_ratio, clock = t[selected], local_ratio, local
         copy = _soft_copy(copy_t, copy_ratio, clock, copy_candidate)
         if copy is not None:
+            copy["half_snapshot_us"] = snapshot_samples / 32
             copies.append(copy)
         refinements.append(
             {
@@ -74,10 +91,11 @@ def decode_clocked(t, p0, p1):
             )
     result["valid_packets"] = accepted
     # Do not create alternate readings when an independent copy already passed.
-    if not accepted:
-        result["valid_packets"] = _combine_repetitions(copies)
-    if not result["valid_packets"]:
-        result["valid_packets"] = _recover_sync_timing(copies)
+    if not any(matches_sensor(p) for p in accepted):
+        result["valid_packets"].extend(_combine_repetitions(copies, diagnostics=checks))
+    if not any(matches_sensor(p) for p in result["valid_packets"]):
+        result["valid_packets"].extend(_recover_sync_timing(copies, diagnostics=checks))
+    result["candidate_checks"] = checks[:100]
     result["clock_refinements"] = refinements
     return result, ratio
 
@@ -105,7 +123,7 @@ def _soft_copy(t, ratio, clock, candidate):
     )
 
 
-def _recover_sync_timing(copies):
+def _recover_sync_timing(copies, diagnostics=None):
     """Fit phase to the known sync waveform, never to payload/checksum results."""
     refined = []
     single = []
@@ -120,7 +138,8 @@ def _recover_sync_timing(copies):
         scores = []
         # An 8 us snapshot mixes neighboring symbols near a transition. Fit a
         # fixed softened sync template, holding the transition-derived period.
-        half_width = 4 / period
+        half_snapshot_us = copy.get("half_snapshot_us", 4)
+        half_width = half_snapshot_us / period
         for shift in shifts:
             u = (sample_t - original_sync - shift) / period
             index = np.floor(u).astype(int)
@@ -148,7 +167,9 @@ def _recover_sync_timing(copies):
         u = (t - sync) / period
         cells = np.floor(u).astype(int)
         fraction = u - cells
-        confidence = np.clip(np.minimum(fraction, 1 - fraction) * period / 4, 0, 1)
+        confidence = np.clip(
+            np.minimum(fraction, 1 - fraction) * period / half_snapshot_us, 0, 1
+        )
         preamble = (cells >= 0) & (cells < 40)
         if len(np.unique(cells[preamble])) != 40:
             continue
@@ -177,6 +198,17 @@ def _recover_sync_timing(copies):
             )
         )
         payload = np.packbits((soft > 0).astype(np.uint8)).tobytes()
+        if diagnostics is not None:
+            diagnostics.append(
+                _payload_checks(
+                    payload,
+                    stage="sync",
+                    preamble_time_us=sync,
+                    preamble_bit_errors=errors,
+                    sync_correlation=float(peak),
+                    timing_shift_us=shift,
+                )
+            )
         try:
             fields = parse_payload(payload)
         except ValueError:
@@ -200,13 +232,25 @@ def _recover_sync_timing(copies):
         )
     if single:
         return single
-    combined = _combine_repetitions(refined)
+    combined = _combine_repetitions(
+        refined, diagnostics=diagnostics, stage="sync_repetition"
+    )
     for packet in combined:
         packet["clock_source"] = "sync_repetition"
     return combined
 
 
-def _combine_repetitions(copies):
+def _payload_checks(payload, **details):
+    return dict(
+        payload_hex=payload.hex(),
+        header_valid=payload[:2] == b"\xaa\x00",
+        checksum_valid=len(payload) == 21 and (sum(payload[:19]) & 255) == payload[19],
+        counter_valid=len(payload) == 21 and payload[20] == ((payload[18] + 1) & 255),
+        **details,
+    )
+
+
+def _combine_repetitions(copies, diagnostics=None, stage="repetition"):
     """Sum measured symbol evidence from this profile's repeated transmissions.
 
     Groups are selected by timing and agreement, before any checksum is tested.
@@ -232,6 +276,16 @@ def _combine_repetitions(copies):
             continue
         soft = np.sum([copy["soft"] for copy in group], axis=0)
         payload = np.packbits((soft > 0).astype(np.uint8)).tobytes()
+        if diagnostics is not None:
+            diagnostics.append(
+                _payload_checks(
+                    payload,
+                    stage=stage,
+                    preamble_time_us=group[0]["sync"],
+                    preamble_bit_errors=max(c["errors"] for c in group),
+                    repetition_count=len(group),
+                )
+            )
         try:
             fields = parse_payload(payload)
         except ValueError:
