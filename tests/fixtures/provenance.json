@@ -1,0 +1,23 @@
+{
+  "kind": "Real ESP32 RF measurements, not synthetic examples",
+  "date": "2026-11-02",
+  "chip": "ESP32-D0WD-V3 rev3.1",
+  "profile": {
+    "requested_tuning_mhz": 2744,
+    "gain_index": 65,
+    "tone_offsets_hz": [
+      808500,
+      1018000
+    ],
+    "nominal_sample_rate": 16000000,
+    "samples_per_observation": 128,
+    "capture_window_ms": 150
+  },
+  "expected_packet": {
+    "sensor_id": "14AB",
+    "temperature_C": 19.8,
+    "humidity_percent": 82,
+    "payload_hex": "aa0014ab1402ba52011808015c0fc9010101b296b3"
+  },
+  "control": "Between-burst recording contains no accepted VEVOR payload. Clock and USB capture artifacts remain present."
+}

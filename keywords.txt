@@ -1,0 +1,9 @@
+Receiver	KEYWORD1
+Config	KEYWORD1
+Observation	KEYWORD1
+CaptureResult	KEYWORD1
+begin	KEYWORD2
+capture	KEYWORD2
+setTuningMHz	KEYWORD2
+setGainIndex	KEYWORD2
+setToneOffsets	KEYWORD2

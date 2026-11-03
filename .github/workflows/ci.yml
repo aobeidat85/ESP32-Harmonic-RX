@@ -1,0 +1,27 @@
+name: Build and test
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  host:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install -e ./host
+      - run: python -m unittest discover -s host/tests -v
+      - run: python -m unittest -v test_dashboard
+        working-directory: dashboard
+      - run: python -m esp32_harmonic_rx --replay tests/fixtures/vevor-yt60234-packet.npz
+      - run: node --check dashboard/static/app.js
+  esp32:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install platformio==6.2.0
+      - run: pio run -d examples/VEVORWeatherStation

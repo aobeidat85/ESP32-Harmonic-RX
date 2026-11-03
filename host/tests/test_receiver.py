@@ -1,0 +1,94 @@
+import unittest
+
+from pathlib import Path
+import numpy as np
+
+from esp32_harmonic_rx import (
+    ReceiverClient,
+    CaptureIntegrityError,
+    decode_clocked,
+    parse_payload,
+)
+
+FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
+
+
+class ReceiverTests(unittest.TestCase):
+    def test_recorded_weather_packet(self):
+        with np.load(
+            FIXTURES / "vevor-yt60234-packet.npz", allow_pickle=False
+        ) as saved:
+            rows = saved["rows"]
+        result, _ = decode_clocked(rows["us"], rows["p0"], rows["p1"])
+        self.assertTrue(result["valid_packets"])
+        reading = parse_payload(result["valid_packets"][0]["payload_hex"])
+        self.assertEqual(
+            (
+                reading["sensor_id"],
+                reading["temperature_C"],
+                reading["humidity_percent"],
+            ),
+            ("14AB", 19.8, 82),
+        )
+        self.assertEqual(reading["counter"] + 1, reading["next_counter"])
+
+    def test_recorded_between_burst_control(self):
+        with np.load(
+            FIXTURES / "between-burst-control.npz", allow_pickle=False
+        ) as saved:
+            rows = saved["rows"]
+        result, _ = decode_clocked(rows["us"], rows["p0"], rows["p1"])
+        self.assertEqual(result["valid_packets"], [])
+
+    def test_corrupt_payload_checks(self):
+        payload = bytearray.fromhex("aa0014ab1402ba52011808015c0fc9010101b296b3")
+        for index in [0, 19, 20]:
+            bad = payload.copy()
+            bad[index] ^= 1
+            with self.assertRaises(ValueError):
+                parse_payload(bad)
+
+    def test_observation_validation(self):
+        t = np.arange(128, dtype=float)
+        p = np.ones(128)
+        for bad in [t[::-1], np.full(128, np.nan)]:
+            with self.assertRaises(ValueError):
+                decode_clocked(bad, p, p)
+        with self.assertRaises(ValueError):
+            decode_clocked(t, -p, p)
+
+    def test_crc_failure_is_distinct_from_short_read(self):
+        payload = bytes(128 * 12)
+
+        class SerialFrame:
+            def __init__(self, short=False):
+                self.short = short
+                self.last_command = b""
+                self.in_waiting = 0
+
+            def write(self, data):
+                self.last_command = data
+
+            def readline(self):
+                if self.last_command == b"INFO\n":
+                    return b"VEVOR_FSK 1 fixture\n"
+                return b"FSK 128 00000001 10000 0 65\n"
+
+            def reset_input_buffer(self):
+                pass
+
+            def read(self, n):
+                return payload[:-1] if self.short else payload
+
+        client = ReceiverClient.__new__(ReceiverClient)
+        client.s = SerialFrame()
+        with self.assertRaises(CaptureIntegrityError):
+            client.capture(10)
+        client.s = SerialFrame(short=True)
+        with self.assertRaises(RuntimeError) as error:
+            client.capture(10)
+        self.assertNotIsInstance(error.exception, CaptureIntegrityError)
+
+
+if __name__ == "__main__":
+    unittest.main()

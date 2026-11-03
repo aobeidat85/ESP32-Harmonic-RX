@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "esp32-harmonic-rx"
+version = "0.1.0"
+description = "Experimental ESP32 two-tone receiver client and VEVOR weather decoder"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-only"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+authors = [{name = "aobeidat85"}]
+dependencies = ["numpy>=1.26,<3", "scipy>=1.11,<2", "pyserial>=3.5,<4"]
+
+[project.urls]
+Repository = "https://github.com/aobeidat85/ESP32-Harmonic-RX"
+
+[project.scripts]
+esp32-harmonic-rx = "esp32_harmonic_rx.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["esp32_harmonic_rx*"]
