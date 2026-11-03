@@ -36,7 +36,9 @@ class ReceiverClient:
         if not info.startswith("VEVOR_FSK "):
             raise RuntimeError("Receiver did not resynchronize; reconnect required")
 
-    def __init__(self, reset=True, port="COM10"):
+    def __init__(self, reset=True, port="COM10", preferred_baud=500000):
+        if preferred_baud not in (500000, 1000000):
+            raise ValueError("Supported transfer rates are 500000 and 1000000")
         self.s = serial.Serial(port, 1000000, timeout=3, write_timeout=2)
         try:
             self.s.dtr = False
@@ -51,6 +53,18 @@ class ReceiverClient:
                 raise RuntimeError(
                     "The board is not running the VEVOR receiver firmware"
                 )
+            if preferred_baud != 1000000 and "baud_switch=1" in self.info.split():
+                if self.command("BAUD " + str(preferred_baud)) != "OK":
+                    raise ReceiverProtocolError("Baud switch was not acknowledged")
+                self.s.baudrate = preferred_baud
+                self.info = self.command("INFO")
+                if (
+                    not self.info.startswith("VEVOR_FSK ")
+                    or "baud=" + str(preferred_baud) not in self.info.split()
+                ):
+                    raise ReceiverProtocolError(
+                        "Receiver did not confirm the transfer rate"
+                    )
         except BaseException:
             self.s.close()
             raise
@@ -133,7 +147,9 @@ class ReceiverClient:
             raw, dtype=[("us", "<u4"), ("p0", "<f4"), ("p1", "<f4")]
         ).copy()
         window_start = (
-            header_received - (elapsed + lag) / 1e6 - (len(line) + 1) * 10 / 1000000
+            header_received
+            - (elapsed + lag) / 1e6
+            - (len(line) + 1) * 10 / getattr(self.s, "baudrate", 1000000)
         )
         return dict(
             raw=raw,

@@ -21,6 +21,10 @@ def unpack(rows, source, sensor_id=None):
         if sensor_id and fields["sensor_id"] != sensor_id.upper():
             continue
         fields.update(source=source, preamble_bit_errors=packet["preamble_bit_errors"])
+        fields.update(
+            repetition_count=packet.get("repetition_count", 1),
+            recovery_method=packet.get("clock_source", "whole"),
+        )
         print(json.dumps(fields), flush=True)
     return result
 

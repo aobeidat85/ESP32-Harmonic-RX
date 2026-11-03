@@ -15,6 +15,83 @@ FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
 
 
 class ReceiverTests(unittest.TestCase):
+    def test_repeated_measured_copies_recover_without_checksum_search(self):
+        from unittest.mock import patch
+
+        with np.load(FIXTURES / "vevor-repetitions.npz", allow_pickle=False) as saved:
+            rows = saved["rows"]
+        args = (rows["us"], rows["p0"], rows["p1"])
+        with patch("esp32_harmonic_rx.vevor._combine_repetitions", return_value=[]):
+            previous, _ = decode_clocked(*args)
+        self.assertFalse(previous["valid_packets"])
+        result, _ = decode_clocked(*args)
+        self.assertEqual(len(result["valid_packets"]), 1)
+        packet = result["valid_packets"][0]
+        self.assertEqual(
+            packet["payload_hex"], "aa0014ab1402af55010c02015b0fc9010101915a92"
+        )
+        self.assertEqual(packet["repetition_count"], 2)
+        self.assertEqual(packet["clock_source"], "repetition")
+        self.assertEqual(parse_payload(packet["payload_hex"])["humidity_percent"], 85)
+
+    def test_baud_negotiation_and_legacy_fallback(self):
+        from unittest.mock import patch
+
+        class Port:
+            def __init__(self, modern):
+                self.modern = modern
+                self.baudrate = 1000000
+                self.commands = []
+
+            def reset_input_buffer(self):
+                pass
+
+            def write(self, command):
+                self.commands.append(command)
+
+            def readline(self):
+                if self.commands[-1].startswith(b"BAUD "):
+                    return b"OK\n"
+                return (
+                    f"VEVOR_FSK 1 baud_switch=1 baud={self.baudrate}\n".encode()
+                    if self.modern
+                    else b"VEVOR_FSK 1 legacy\n"
+                )
+
+            def close(self):
+                pass
+
+        for modern, expected in [(True, 500000), (False, 1000000)]:
+            port = Port(modern)
+            with patch("esp32_harmonic_rx.client.serial.Serial", return_value=port):
+                client = ReceiverClient(reset=False, port="TEST")
+            self.assertEqual(client.s.baudrate, expected)
+            self.assertEqual(b"BAUD 500000\n" in port.commands, modern)
+
+    def test_repetition_recovery_on_fresh_holdout_and_control(self):
+        from unittest.mock import patch
+
+        with np.load(
+            FIXTURES / "vevor-repetitions-holdout.npz", allow_pickle=False
+        ) as saved:
+            rows = saved["rows"]
+        args = (rows["us"], rows["p0"], rows["p1"])
+        with patch("esp32_harmonic_rx.vevor._combine_repetitions", return_value=[]):
+            previous, _ = decode_clocked(*args)
+        self.assertFalse(previous["valid_packets"])
+        result, _ = decode_clocked(*args)
+        packet = result["valid_packets"][0]
+        self.assertEqual(
+            packet["payload_hex"], "aa0014ab1402a35a010a0201630fc9010101864e87"
+        )
+        self.assertEqual(packet["repetition_count"], 2)
+        with np.load(
+            FIXTURES / "vevor-repetitions-control.npz", allow_pickle=False
+        ) as saved:
+            control = saved["rows"]
+        rejected, _ = decode_clocked(control["us"], control["p0"], control["p1"])
+        self.assertEqual(rejected["valid_packets"], [])
+
     def test_monitor_idle_reply_and_invalid_serial_boundary(self):
         class Reply:
             def __init__(self, line):

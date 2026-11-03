@@ -29,5 +29,26 @@
     "humidity_percent": 85,
     "payload_hex": "aa0014ab1402af5501080501600fc90101016a376b",
     "result": "Whole-window clock yields an invalid counter/checksum; fixed sync-centered local clock yields a valid payload without bit correction."
+  },
+  "repetition_regression": {
+    "file": "vevor-repetitions.npz",
+    "kind": "Real physical capture containing repeated copies with different errors",
+    "date": "2026-11-02",
+    "sensor_id": "14AB",
+    "expected_payload_hex": "aa0014ab1402af55010c02015b0fc9010101915a92",
+    "temperature_C": 18.7,
+    "humidity_percent": 85,
+    "result": "Independent whole/local clock paths reject both copies. Deterministic measured soft-evidence combining recovers a checksum/counter-valid payload."
+  },
+  "repetition_holdout": {
+    "file": "vevor-repetitions-holdout.npz",
+    "control_file": "vevor-repetitions-control.npz",
+    "kind": "Fresh physical RF holdout collected after fixing the repetition-combining rules",
+    "date": "2026-11-02",
+    "sensor_id": "14AB",
+    "expected_payload_hex": "aa0014ab1402a35a010a0201630fc9010101864e87",
+    "temperature_C": 17.5,
+    "humidity_percent": 90,
+    "result": "Neither independent decoding path accepts a packet; repeated-copy combining passes all checks. Paired between-burst control remains rejected."
   }
 }

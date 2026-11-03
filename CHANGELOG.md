@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 — Slower USB transfer and measured repetition combining
+
+- Negotiate 500,000-baud transfers after the 1,000,000-baud startup handshake; retain legacy firmware compatibility.
+- Account for the negotiated rate in capture timestamp estimates and show it in the dashboard.
+- Combine measured symbol evidence from closely matching, correctly spaced copies only when individual decoding fails; all payload checks remain required.
+- Add a real failed-copy regression fixture and baud-negotiation tests.
+
 ## 0.1.2 — USB recovery and activity-gated acquisition
 
 - Reset/reconnect after unknown USB framing or serial I/O failure, with bounded retries.

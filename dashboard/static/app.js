@@ -203,6 +203,8 @@ function render(value) {
   $('receiverToggle').disabled = requestPending || value.phase === 'stopping';
   $('sessionAccepted').textContent = number(value.stats.accepted,0);
   $('sessionWindows').textContent = number(value.stats.windows,0);
+  const baud = value.firmware?.match(/\bbaud=(\d+)/)?.[1] || '1000000';
+  $('serialSpeed').textContent = connected ? number(Number(baud),0) + ' baud' : 'Not connected';
   $('navCount').textContent = number(value.readings.length,0);
   $('activityList').innerHTML = value.events.slice(0,2).map(eventHtml).join('');
   $('receiverEvents').innerHTML = value.events.slice(0,15).map(eventHtml).join('') || '<div class="empty-state">No connection events yet.</div>';

@@ -36,6 +36,8 @@ def utc(timestamp=None):
 def weather_fields(packet):
     fields = parse_payload(packet["payload_hex"])
     fields["preamble_bit_errors"] = packet.get("preamble_bit_errors")
+    fields["repetition_count"] = packet.get("repetition_count", 1)
+    fields["recovery_method"] = packet.get("clock_source", "whole")
     return fields
 
 
@@ -483,6 +485,8 @@ class Handler(BaseHTTPRequestHandler):
                 "checksum_valid",
                 "counter_valid",
                 "preamble_bit_errors",
+                "recovery_method",
+                "repetition_count",
                 "payload_hex",
             ]
             writer = csv.DictWriter(out, fieldnames=columns, extrasaction="ignore")

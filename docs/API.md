@@ -20,11 +20,12 @@ Use global/static output storage. The library rejects an output buffer that over
 
 ## Included USB bridge
 
-The VEVOR sketch uses 1,000,000 baud. Commands are newline-terminated ASCII:
+The VEVOR sketch starts at 1,000,000 baud. Current host tools negotiate 500,000 baud when `INFO` advertises `baud_switch=1`; older firmware remains at its original rate. Commands are newline-terminated ASCII:
 
 | Command | Reply / action |
 |---|---|
 | `INFO` | `VEVOR_FSK 1 ...` identifying the bridge and current settings |
+| `BAUD 500000` | ACK at the old rate, flush, then switch UART rate; confirm with INFO at the new rate |
 | `GAIN 65` | Set the manual gain index |
 | `FREQ 2744` | Attempt the LO setting |
 | `TONES 808500 1018000` | Update the tone offsets |
@@ -71,3 +72,9 @@ IDLE <count> <elapsed_us> <failed_snapshots> <gain> <post_capture_us> <edges> <c
 A transferred `MON` candidate uses the normal `FSK` header with one extra final `post_capture_us` field. The host subtracts this processing delay when estimating the window start. `client.capture(150, monitor=True)` returns `idle=True` and no `rows` for an IDLE reply; callers must not treat it as weather data. The dashboard negotiates this feature, uses ordinary CAP for predicted bursts and every 32nd acquisition scan, and remains compatible with older firmware.
 
 `ReceiverProtocolError` marks an unknown binary boundary, invalid metadata, or short read. Close/reset/reconnect before another capture. The dashboard automatically does this with bounded retries; direct API callers own recovery. Fully consumed CRC-bad frames still use `CaptureIntegrityError` when in-place INFO resynchronization succeeds.
+
+## Transfer-rate negotiation and repeated-copy metadata (0.1.3)
+
+`ReceiverClient(preferred_baud=500000)` is the default. Startup/reset is always at 1,000,000 baud. The client only requests BAUD when the feature is advertised, changes its serial-port rate after the old-rate ACK, and requires INFO to confirm the new rate. `preferred_baud=1000000` keeps the original transfer speed. Direct API users must close/reset on failed negotiation.
+
+A recovered packet can include `clock_source=repetition` and `repetition_count`. Dashboard/CLI weather records expose these as `recovery_method` and `repetition_count`. Repetition combining sums measured soft evidence, then requires the unchanged header/checksum/counter checks. It is distinct from a single-copy decode and from checksum-directed bit flipping.

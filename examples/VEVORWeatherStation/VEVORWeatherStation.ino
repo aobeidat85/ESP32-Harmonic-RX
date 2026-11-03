@@ -8,6 +8,7 @@
 using namespace esp32_harmonic_rx;
 Receiver receiver;
 Observation observations[Receiver::MaxObservations];
+unsigned activeBaud = 1000000;
 
 void setup() {
   Serial.begin(1000000);
@@ -31,9 +32,15 @@ void loop() {
       Serial.printf("ERR receiver %s\n", Receiver::errorMessage(receiver.lastError()));
       return;
     }
-    Serial.printf("VEVOR_FSK 1 N=%u max_rows=%u freq=%u gain=%u heap=%u monitor=1 reset_reason=%u\n",
+    Serial.printf("VEVOR_FSK 1 N=%u max_rows=%u freq=%u gain=%u heap=%u monitor=1 reset_reason=%u baud_switch=1 baud=%u\n",
                   unsigned(Receiver::SamplesPerObservation), unsigned(Receiver::MaxObservations),
-                  receiver.config().tuningMHz, receiver.config().gainIndex, ESP.getFreeHeap(), unsigned(esp_reset_reason()));
+                  receiver.config().tuningMHz, receiver.config().gainIndex, ESP.getFreeHeap(), unsigned(esp_reset_reason()), activeBaud);
+  } else if (sscanf(command.c_str(), "BAUD %u", &value) == 1 && (value == 500000 || value == 1000000)) {
+    // Acknowledge completely at the old speed before either side changes rate.
+    Serial.println("OK");
+    Serial.flush();
+    Serial.updateBaudRate(value);
+    activeBaud = value;
   } else if ((sscanf(command.c_str(), "CAP %u", &value) == 1 ||
               sscanf(command.c_str(), "MON %u", &value) == 1) && value >= 10 && value <= 150) {
     const bool monitor = command.startsWith("MON ");

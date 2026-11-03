@@ -29,7 +29,7 @@ Python estimates a quiet tone-power baseline, forms a log ratio between the tone
 
 After detecting a sync, the decoder also estimates a local clock in one fixed 40 ms interval: 16 ms before the sync and 24 ms after it. The local timing is eligible only when transition coherence is at least 0.3 and improves on the whole-window estimate. This selection uses physical transitions, without consulting checksum results or modifying payload bits. It avoids letting noise and small timing drift across the full 150 ms window corrupt a short packet.
 
-The VEVOR decoder permits at most two errors in the 40-bit sync pattern. It then requires the exact `AA00` payload header, 21 payload bytes, a matching additive checksum over the first 19 bytes, and `payload[20] == (payload[18] + 1) mod 256`. At least 264 decoded bits must remain from the sync position. It performs no payload bit repair.
+The VEVOR decoder permits at most two errors in the 40-bit sync pattern. It then requires the exact `AA00` payload header, 21 payload bytes, a matching additive checksum over the first 19 bytes, and `payload[20] == (payload[18] + 1) mod 256`. At least 264 decoded bits must remain from the sync position. It never flips payload bits to satisfy the checksum. If independent copies fail, a conditional fixed repetition-combining step uses their measured soft symbol evidence.
 
 Searching timing parameters until a checksum passes can produce misleading alternatives. An earlier exploratory decoder showed this problem, so the published decoder recovers timing independently. Even then, an additive checksum is weak: consistent sensor IDs, repeated fields, console comparison, and negative controls remain useful checks.
 
@@ -42,3 +42,9 @@ Accepted readings are appended to a local JSONL file. The browser polls the serv
 ## What to reproduce next
 
 Useful independent replications would measure the actual carrier and PLL behavior, repeat on other original-ESP32 boards, measure range, and compare all weather fields against the console. A battery-powered RF-isolation test would provide stronger evidence about the coupling path than the existing wall-USB comparison. These are future validations, not results claimed by this repository.
+
+## Repeated-copy recovery (0.1.3)
+
+The measured YT60234 captures contain copies spaced approximately 379 recovered symbol periods apart. When independent decoding produces no accepted packet, the decoder can group copies whose transition coherence is at least 0.3, spacing is within two symbols of that measured interval, and hard payload decisions differ in at most 12 of 168 bits. Every payload symbol must have observations. These criteria are evaluated before the combined checksum.
+
+The decoder adds measured log tone-ratio evidence at corresponding symbol positions, makes one deterministic payload decision, and applies the exact header, additive checksum, and paired-counter checks. It does not enumerate bit flips, choose timing using checksums, or combine readings from separate 20-second bursts. A combined reading records `recovery_method=repetition` and its `repetition_count`. This is a profile-specific recovery method and an additive checksum still cannot rule out all compensating errors.

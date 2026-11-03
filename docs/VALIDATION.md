@@ -19,7 +19,7 @@ The package includes a real accepted capture and a real control in `tests/fixtur
 - The paired counter relationship, including byte wrap.
 - Optional station-ID filtering.
 
-No payload bit correction is performed. A checksum match alone is not proof of an error-free payload: compensating errors can leave an additive checksum unchanged. The repeated ID and fields and the console comparison strengthen this particular experiment.
+The original single-copy path performs no payload bit correction. Version 0.1.3 adds measured repeated-copy combining, described below; it never flips bits to force a checksum. A checksum match alone is not proof of an error-free payload: compensating errors can leave an additive checksum unchanged. The repeated ID and fields and the console comparison strengthen this particular experiment.
 
 ## Software checks
 
@@ -52,3 +52,11 @@ A third live reading followed at 22:40:29 America/New_York: 18.5°C, 86% RH. The
 The dashboard later stopped on a malformed USB capture header; a separate gain test also encountered a serial timeout. These are transport failures, not evidence of weak RF. Tests now exercise closing the corrupted connection and reconnecting before receiving a real recorded packet.
 
 A 65.16-second on-board MON run completed 410 quiet windows with no payload transfers or CRC errors. The sum of capture-window durations was 61.50 seconds, or 94.39% of wall time. This is **window coverage**, not continuous I/Q coverage: the 128-sample snapshots still have processing gaps within each window. No weather payload was accepted during that run, so the coverage result does not establish improved RF range or packet success rate. Periodic unfiltered scans and all predicted bursts bypass the gate.
+
+## 0.1.3 transfer and repeated-copy tests
+
+A six-burst test at the original USB rate encountered two lost-framing events on predicted bursts and one CRC-bad control frame. With negotiated 500,000-baud transfer, a separate stress run completed 20 full 150 ms captures in 24.45 seconds with zero CRC/framing failures. This is a short bench result, not a guarantee against future USB faults.
+
+The decoder was then tested on four new predicted burst windows and four between-burst controls. All four bursts yielded accepted 14AB payloads; none of the controls did, and none of the eight transfers reported CRC/framing loss. Two burst payloads required measured repetition combining; the other two used local/whole-window timing. The combining rules were fixed before collecting these four windows. `vevor-repetitions-holdout.npz` and its between-burst control preserve one such fresh regression pair.
+
+The preexisting `vevor-repetitions.npz` fixture contains two independently invalid copies. Their measured soft symbol evidence recovers the expected 18.7°C / 85% RH payload when combined at the observed repeat spacing. All original and new payload checks remain required. The later live dashboard also received a new packet on the slower link, but still missed some bursts: this is an improvement in a short experiment, not proof of reliable range or a controlled long-term reception-rate comparison. Twenty-one host/dashboard tests pass.

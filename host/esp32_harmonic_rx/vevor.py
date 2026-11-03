@@ -19,16 +19,35 @@ def decode_clocked(t, p0, p1):
     t, p0, p1 = (np.asarray(x, dtype=float) for x in (t, p0, p1))
     accepted = list(result["valid_packets"])
     refinements = []
+    copies = []
     for candidate in result.get("unvalidated_candidates", []):
         sync = candidate["preamble_time_us"]
+        clock = result
+        copy_t, copy_ratio, copy_candidate = t, ratio, candidate
         selected = (t >= sync - 16000) & (t <= sync + 24000)
         if selected.sum() < 128:
             continue
-        local, _ = _decode_window(t[selected], p0[selected], p1[selected])
+        local, local_ratio = _decode_window(t[selected], p0[selected], p1[selected])
         coherence = local.get("clock_coherence", 0)
         # Select timing by physical transition coherence, not packet validity.
         if coherence < max(0.3, result.get("clock_coherence", 0)):
+            copy = _soft_copy(copy_t, copy_ratio, clock, copy_candidate)
+            if copy is not None:
+                copies.append(copy)
             continue
+        nearby = [
+            p
+            for p in local.get("unvalidated_candidates", [])
+            if abs(p["preamble_time_us"] - sync) < 500
+        ]
+        if nearby:
+            copy_candidate = min(
+                nearby, key=lambda p: abs(p["preamble_time_us"] - sync)
+            )
+            copy_t, copy_ratio, clock = t[selected], local_ratio, local
+        copy = _soft_copy(copy_t, copy_ratio, clock, copy_candidate)
+        if copy is not None:
+            copies.append(copy)
         refinements.append(
             {
                 "sync_time_us": sync,
@@ -54,8 +73,82 @@ def decode_clocked(t, p0, p1):
                 )
             )
     result["valid_packets"] = accepted
+    # Do not create alternate readings when an independent copy already passed.
+    if not accepted:
+        result["valid_packets"] = _combine_repetitions(copies)
     result["clock_refinements"] = refinements
     return result, ratio
+
+
+def _soft_copy(t, ratio, clock, candidate):
+    if clock.get("clock_coherence", 0) < 0.3:
+        return None
+    period, sync = clock["clock_period_us"], candidate["preamble_time_us"]
+    cells = np.floor((t - sync) / period).astype(int)
+    selected = (cells >= 40) & (cells < 208)
+    indices = cells[selected] - 40
+    if len(np.unique(indices)) != 168:
+        return None
+    soft = np.bincount(indices, weights=ratio[selected], minlength=168)
+    if candidate["inverted"]:
+        soft = -soft
+    return dict(
+        sync=sync,
+        period=period,
+        soft=soft,
+        coherence=clock["clock_coherence"],
+        errors=candidate["preamble_bit_errors"],
+    )
+
+
+def _combine_repetitions(copies):
+    """Sum measured symbol evidence from this profile's repeated transmissions.
+
+    Groups are selected by timing and agreement, before any checksum is tested.
+    The approximately 379-symbol repeat spacing is measured for the YT60234
+    example; this is not a generic VEVOR protocol constant.
+    """
+    groups = []
+    for copy in sorted(copies, key=lambda c: c["sync"]):
+        for group in groups:
+            last = group[-1]
+            spacing = (copy["sync"] - last["sync"]) / (
+                (copy["period"] + last["period"]) / 2
+            )
+            disagreement = np.count_nonzero((copy["soft"] > 0) != (last["soft"] > 0))
+            if abs(spacing - 379) <= 2 and disagreement <= 12:
+                group.append(copy)
+                break
+        else:
+            groups.append([copy])
+    accepted = []
+    for group in groups:
+        if len(group) < 2:
+            continue
+        soft = np.sum([copy["soft"] for copy in group], axis=0)
+        payload = np.packbits((soft > 0).astype(np.uint8)).tobytes()
+        try:
+            fields = parse_payload(payload)
+        except ValueError:
+            continue
+        accepted.append(
+            dict(
+                payload_hex=payload.hex(),
+                preamble_time_us=group[0]["sync"],
+                preamble_bit_errors=max(copy["errors"] for copy in group),
+                header_valid=True,
+                checksum_valid=True,
+                counter_valid=True,
+                inverted=False,
+                sensor_id=fields["sensor_id"].lower(),
+                temperature_C=fields["temperature_C"],
+                humidity=fields["humidity_percent"],
+                repetition_count=len(group),
+                clock_source="repetition",
+                clock_period_us=float(np.mean([copy["period"] for copy in group])),
+            )
+        )
+    return accepted
 
 
 def _decode_window(t, p0, p1):

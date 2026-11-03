@@ -55,7 +55,7 @@ This is one tested station/board combination. The EU868 MHz variant and other VE
 
 Later live prototype readings changed as new packets arrived. The current dashboard screenshot includes fresh readings received after the local-clock fix, alongside earlier saved history. [The earlier live prototype screenshot](docs/images/dashboard-prototype-live.jpg) shows new packets arriving. These are real UI captures, not synthetic mockups. Wind, rain, UV, light, and battery fields are decoded but were not independently compared with the console.
 
-The simple additive checksum can miss compensating bit errors. Stable IDs, repeated fields, console comparison, and negative controls provide additional evidence; they do not make reception error-free. Up to two errors are permitted in the 40-bit sync pattern. Payload bits are not repaired or guessed.
+The simple additive checksum can miss compensating bit errors. Stable IDs, repeated fields, console comparison, and negative controls provide additional evidence; they do not make reception error-free. Up to two errors are permitted in the 40-bit sync pattern. No payload bits are flipped to force a checksum match. When independent copies fail, the decoder can combine measured symbol evidence from repeated copies, then apply all the same payload checks. Readings report their recovery method and repetition count.
 
 ## Supported build
 
@@ -87,7 +87,7 @@ python -m venv .venv
 
 Open **http://127.0.0.1:8765** and select **Start receiving**. Begin close to the outdoor sensor, as in the experiment. Initial acquisition can take several bursts. The dashboard retains measured burst timing for up to five minutes across restarts, then falls back to scanning. Keep any experimental GPIO transmitter unplugged while receiving weather data.
 
-The UI starts with recorded example readings labeled **Saved**. Newly received packets are labeled **Live**. The Start/Stop controls acquire and release the serial port. With current firmware, acquisition uses a physical FSK activity gate to avoid transferring empty captures. Predicted bursts and every 32nd scan bypass the gate so weak candidates can still reach the decoder. Capture-window counts include quiet periods and are not counts of transmitted packets. A complete USB frame with a bad CRC is discarded and reception continues; a short read or malformed protocol frame causes the dashboard to close, reset, and reconnect the receiver, with bounded retries.
+The UI starts with recorded example readings labeled **Saved**. Newly received packets are labeled **Live**. The Start/Stop controls acquire and release the serial port. Current firmware starts at 1,000,000 baud and the host negotiates a 500,000-baud transfer rate to reduce observed USB corruption; older firmware remains at its original rate. With current firmware, acquisition uses a physical FSK activity gate to avoid transferring empty captures. Predicted bursts and every 32nd scan bypass the gate so weak candidates can still reach the decoder. Capture-window counts include quiet periods and are not counts of transmitted packets. A complete USB frame with a bad CRC is discarded and reception continues; a short read or malformed protocol frame causes the dashboard to close, reset, and reconnect the receiver, with bounded retries.
 
 For Linux/macOS, activate `.venv`, use `python -m pip install -e ./host platformio==6.2.0`, and substitute a port such as `/dev/ttyUSB0`:
 
